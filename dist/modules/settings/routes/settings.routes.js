@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const settings_controller_1 = require("../controllers/settings.controller");
+const auth_middleware_1 = require("../../../middlewares/auth.middleware");
+const router = (0, express_1.Router)();
+router.get('/public', settings_controller_1.settingsController.getPublicSettings.bind(settings_controller_1.settingsController));
+router.get('/', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, settings_controller_1.settingsController.getAllSettings.bind(settings_controller_1.settingsController));
+router.get('/:group', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, settings_controller_1.settingsController.getByGroup.bind(settings_controller_1.settingsController));
+router.post('/', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, settings_controller_1.settingsController.upsertSetting.bind(settings_controller_1.settingsController));
+router.post('/bulk', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, settings_controller_1.settingsController.upsertBulk.bind(settings_controller_1.settingsController));
+exports.default = router;

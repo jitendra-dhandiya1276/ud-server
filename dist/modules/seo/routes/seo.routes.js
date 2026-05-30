@@ -1,0 +1,14 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const seo_controller_1 = require("../controllers/seo.controller");
+const auth_middleware_1 = require("../../../middlewares/auth.middleware");
+const router = (0, express_1.Router)();
+router.get('/page/:page', seo_controller_1.seoController.getByPage.bind(seo_controller_1.seoController));
+router.get('/cms/:slug', seo_controller_1.seoController.getCmsPage.bind(seo_controller_1.seoController));
+router.get('/admin/all', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, seo_controller_1.seoController.getAll.bind(seo_controller_1.seoController));
+router.put('/admin/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, seo_controller_1.seoController.update.bind(seo_controller_1.seoController));
+router.post('/admin/upsert', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, seo_controller_1.seoController.upsert.bind(seo_controller_1.seoController));
+router.get('/admin/cms', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, seo_controller_1.seoController.getAllCmsPages.bind(seo_controller_1.seoController));
+router.post('/admin/cms', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, seo_controller_1.seoController.upsertCmsPage.bind(seo_controller_1.seoController));
+exports.default = router;

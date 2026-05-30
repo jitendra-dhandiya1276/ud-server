@@ -1,0 +1,14 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const homepage_controller_1 = require("../controllers/homepage.controller");
+const auth_middleware_1 = require("../../../middlewares/auth.middleware");
+const router = (0, express_1.Router)();
+router.get('/', homepage_controller_1.homepageController.getSections.bind(homepage_controller_1.homepageController));
+router.get('/data', homepage_controller_1.homepageController.getFullHomepageData.bind(homepage_controller_1.homepageController));
+router.get('/admin', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, homepage_controller_1.homepageController.getAllSections.bind(homepage_controller_1.homepageController));
+router.post('/', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, homepage_controller_1.homepageController.createSection.bind(homepage_controller_1.homepageController));
+router.put('/reorder', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, homepage_controller_1.homepageController.reorderSections.bind(homepage_controller_1.homepageController));
+router.put('/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, homepage_controller_1.homepageController.updateSection.bind(homepage_controller_1.homepageController));
+router.delete('/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, homepage_controller_1.homepageController.deleteSection.bind(homepage_controller_1.homepageController));
+exports.default = router;

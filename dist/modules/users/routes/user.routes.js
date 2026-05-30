@@ -1,0 +1,22 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const user_controller_1 = require("../controllers/user.controller");
+const auth_middleware_1 = require("../../../middlewares/auth.middleware");
+const upload_1 = require("../../../utils/upload");
+const router = (0, express_1.Router)();
+const upload = (0, upload_1.createUploader)('users');
+router.put('/profile', auth_middleware_1.authenticate, upload.single('avatar'), user_controller_1.userController.updateProfile.bind(user_controller_1.userController));
+router.get('/addresses', auth_middleware_1.authenticate, user_controller_1.userController.getAddresses.bind(user_controller_1.userController));
+router.post('/addresses', auth_middleware_1.authenticate, user_controller_1.userController.addAddress.bind(user_controller_1.userController));
+router.put('/addresses/:id', auth_middleware_1.authenticate, user_controller_1.userController.updateAddress.bind(user_controller_1.userController));
+router.delete('/addresses/:id', auth_middleware_1.authenticate, user_controller_1.userController.deleteAddress.bind(user_controller_1.userController));
+router.get('/recently-viewed', auth_middleware_1.authenticate, user_controller_1.userController.getRecentlyViewed.bind(user_controller_1.userController));
+router.post('/recently-viewed', auth_middleware_1.authenticate, user_controller_1.userController.addRecentlyViewed.bind(user_controller_1.userController));
+router.get('/notifications', auth_middleware_1.authenticate, user_controller_1.userController.getNotifications.bind(user_controller_1.userController));
+router.put('/notifications/read', auth_middleware_1.authenticate, user_controller_1.userController.markNotificationsRead.bind(user_controller_1.userController));
+// Admin
+router.get('/', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, user_controller_1.userController.getAllUsers.bind(user_controller_1.userController));
+router.put('/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, user_controller_1.userController.updateUser.bind(user_controller_1.userController));
+router.put('/:id/toggle-status', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, user_controller_1.userController.toggleUserStatus.bind(user_controller_1.userController));
+exports.default = router;

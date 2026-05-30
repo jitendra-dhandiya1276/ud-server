@@ -1,0 +1,16 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const blog_controller_1 = require("../controllers/blog.controller");
+const auth_middleware_1 = require("../../../middlewares/auth.middleware");
+const upload_1 = require("../../../utils/upload");
+const router = (0, express_1.Router)();
+const upload = (0, upload_1.createUploader)('blogs');
+router.get('/', blog_controller_1.blogController.getPublished.bind(blog_controller_1.blogController));
+router.get('/categories', blog_controller_1.blogController.getCategories.bind(blog_controller_1.blogController));
+router.get('/:slug', blog_controller_1.blogController.getBySlug.bind(blog_controller_1.blogController));
+router.get('/admin/all', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, blog_controller_1.blogController.getAllAdmin.bind(blog_controller_1.blogController));
+router.post('/', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, upload.single('image'), blog_controller_1.blogController.create.bind(blog_controller_1.blogController));
+router.put('/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, upload.single('image'), blog_controller_1.blogController.update.bind(blog_controller_1.blogController));
+router.delete('/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, blog_controller_1.blogController.delete.bind(blog_controller_1.blogController));
+exports.default = router;
