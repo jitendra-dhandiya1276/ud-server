@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../../../config/prisma';
-import { sendSuccess, sendPaginated } from '../../../utils/response';
+import { sendSuccess, sendError, sendPaginated } from '../../../utils/response';
 import { getImageUrl, deleteFile, optimizeImage } from '../../../utils/upload';
 import path from 'path';
 import { config } from '../../../config/env';
@@ -52,10 +52,10 @@ export class MediaController {
   async delete(req: Request, res: Response) {
     const { id } = req.params;
     const media = await prisma.media.findUnique({ where: { id } });
-    if (!media) return sendSuccess(res, null, 'Not found');
+    if (!media) return sendError(res, 'Media not found', 404);
 
     const filePath = path.join(config.upload.path, media.folder.toLowerCase(), media.filename);
-    deleteFile(filePath);
+    await deleteFile(filePath);
 
     await prisma.media.delete({ where: { id } });
     return sendSuccess(res, null, 'Media deleted');

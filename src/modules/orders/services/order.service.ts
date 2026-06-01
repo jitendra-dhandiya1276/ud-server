@@ -13,55 +13,108 @@ export class OrderService {
     shippingAddress: object;
     billingAddress?: object;
   }) {
-    const subtotal = data.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    let couponDiscount = 0;
-    let shippingCharge = subtotal < 999 ? 99 : 0;
-    const taxAmount = subtotal * 0.18;
-    const total = subtotal - couponDiscount + shippingCharge;
-
-    const order = await prisma.order.create({
-      data: {
-        orderNumber: generateOrderNumber(),
-        userId,
-        addressId: data.addressId,
-        status: 'PENDING',
-        paymentStatus: data.paymentMethod === 'COD' ? 'PENDING' : 'PENDING',
-        paymentMethod: data.paymentMethod as any,
-        subtotal,
-        discount: couponDiscount,
-        shippingCharge,
-        taxAmount,
-        total,
-        couponCode: data.couponCode,
-        couponDiscount,
-        notes: data.notes,
-        shippingAddress: data.shippingAddress,
-        billingAddress: data.billingAddress || data.shippingAddress,
-        items: {
-          create: data.items.map(item => ({
-            productId: item.productId,
-            variantId: item.variantId,
-            quantity: item.quantity,
-            price: item.price,
-            total: item.price * item.quantity,
-            name: '',
-          })),
-        },
-      },
-      include: { items: true, address: true },
-    });
-
-    for (const item of data.items) {
-      await prisma.product.update({
-        where: { id: item.productId },
-        data: {
-          totalSold: { increment: item.quantity },
-          stockQuantity: { decrement: item.quantity },
-        },
+    return prisma.$transaction(async (tx) => {
+      // 1. Fetch products and validate stock before touching any data
+      const productIds = [...new Set(data.items.map(i => i.productId))];
+      const products = await tx.product.findMany({
+        where: { id: { in: productIds }, isActive: true, deletedAt: null },
+        select: { id: true, name: true, stockQuantity: true },
       });
-    }
+      const productMap = new Map(products.map(p => [p.id, p]));
 
-    return order;
+      for (const item of data.items) {
+        const product = productMap.get(item.productId);
+        if (!product) throw new AppError(`Product not found: ${item.productId}`, 400);
+        if (product.stockQuantity < item.quantity) {
+          throw new AppError(`Insufficient stock for "${product.name}"`, 400);
+        }
+      }
+
+      // 2. Compute totals
+      const subtotal = data.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      const shippingCharge = subtotal < 999 ? 99 : 0;
+      // Prices are GST-inclusive; taxAmount is stored for display/accounting only
+      const taxAmount = subtotal * 0.18;
+      let couponDiscount = 0;
+
+      // 3. Validate and apply coupon inside the transaction
+      if (data.couponCode) {
+        const now = new Date();
+        const coupon = await tx.coupon.findFirst({
+          where: {
+            code: data.couponCode,
+            isActive: true,
+            AND: [
+              { OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] },
+              { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+            ],
+          },
+        });
+
+        if (coupon && (!coupon.usageLimit || coupon.usageCount < coupon.usageLimit)) {
+          if (!coupon.minOrderAmount || subtotal >= Number(coupon.minOrderAmount)) {
+            if (coupon.type === 'PERCENTAGE') {
+              couponDiscount = (subtotal * Number(coupon.value)) / 100;
+              if (coupon.maxDiscount) couponDiscount = Math.min(couponDiscount, Number(coupon.maxDiscount));
+            } else if (coupon.type === 'FIXED') {
+              couponDiscount = Math.min(Number(coupon.value), subtotal);
+            }
+            await tx.coupon.update({
+              where: { id: coupon.id },
+              data: { usageCount: { increment: 1 } },
+            });
+          }
+        }
+      }
+
+      const total = subtotal - couponDiscount + shippingCharge;
+
+      // 4. Create order with populated item names
+      const order = await tx.order.create({
+        data: {
+          orderNumber: generateOrderNumber(),
+          userId,
+          addressId: data.addressId,
+          status: 'PENDING',
+          paymentStatus: 'PENDING',
+          paymentMethod: data.paymentMethod as any,
+          subtotal,
+          discount: couponDiscount,
+          shippingCharge,
+          taxAmount,
+          total,
+          couponCode: data.couponCode,
+          couponDiscount,
+          notes: data.notes,
+          shippingAddress: data.shippingAddress,
+          billingAddress: data.billingAddress || data.shippingAddress,
+          items: {
+            create: data.items.map(item => ({
+              productId: item.productId,
+              variantId: item.variantId,
+              quantity: item.quantity,
+              price: item.price,
+              total: item.price * item.quantity,
+              name: productMap.get(item.productId)?.name ?? '',
+            })),
+          },
+        },
+        include: { items: true, address: true },
+      });
+
+      // 5. Atomically decrement stock within the same transaction
+      for (const item of data.items) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: {
+            totalSold: { increment: item.quantity },
+            stockQuantity: { decrement: item.quantity },
+          },
+        });
+      }
+
+      return order;
+    });
   }
 
   async getOrderById(id: string, userId?: string) {

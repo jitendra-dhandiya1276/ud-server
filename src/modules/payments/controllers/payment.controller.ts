@@ -15,6 +15,7 @@ export class PaymentController {
     const { orderId } = req.body;
     const order = await prisma.order.findUnique({ where: { id: orderId } });
     if (!order) return sendError(res, 'Order not found', 404);
+    if (!req.user || order.userId !== req.user.userId) return sendError(res, 'Forbidden', 403);
 
     const razorpayOrder = await razorpay.orders.create({
       amount: Math.round(Number(order.total) * 100),
@@ -39,6 +40,10 @@ export class PaymentController {
 
   async verifyPayment(req: Request, res: Response) {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId } = req.body;
+
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) return sendError(res, 'Order not found', 404);
+    if (!req.user || order.userId !== req.user.userId) return sendError(res, 'Forbidden', 403);
 
     const expectedSignature = crypto
       .createHmac('sha256', config.razorpay.keySecret)

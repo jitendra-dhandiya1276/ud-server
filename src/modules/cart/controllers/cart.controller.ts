@@ -67,6 +67,15 @@ export class CartController {
   async updateItem(req: Request, res: Response) {
     const { itemId } = req.params;
     const { quantity } = req.body;
+    const userId = req.user?.userId;
+    const sessionId = req.headers['x-session-id'] as string;
+
+    const cartWhere = userId ? { userId } : { sessionId };
+    const cart = await prisma.cart.findFirst({ where: cartWhere });
+    if (!cart) return sendError(res, 'Cart not found', 404);
+
+    const item = await prisma.cartItem.findFirst({ where: { id: itemId, cartId: cart.id } });
+    if (!item) return sendError(res, 'Cart item not found', 404);
 
     if (quantity < 1) {
       await prisma.cartItem.delete({ where: { id: itemId } });
@@ -79,6 +88,16 @@ export class CartController {
 
   async removeItem(req: Request, res: Response) {
     const { itemId } = req.params;
+    const userId = req.user?.userId;
+    const sessionId = req.headers['x-session-id'] as string;
+
+    const cartWhere = userId ? { userId } : { sessionId };
+    const cart = await prisma.cart.findFirst({ where: cartWhere });
+    if (!cart) return sendError(res, 'Cart not found', 404);
+
+    const item = await prisma.cartItem.findFirst({ where: { id: itemId, cartId: cart.id } });
+    if (!item) return sendError(res, 'Cart item not found', 404);
+
     await prisma.cartItem.delete({ where: { id: itemId } });
     return sendSuccess(res, null, 'Item removed');
   }
@@ -94,12 +113,15 @@ export class CartController {
 
   async applyCoupon(req: Request, res: Response) {
     const { code, cartTotal } = req.body;
+    const now = new Date();
     const coupon = await prisma.coupon.findFirst({
       where: {
         code: { equals: code },
         isActive: true,
-        OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
-        OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }],
+        AND: [
+          { OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] },
+          { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+        ],
       },
     });
 

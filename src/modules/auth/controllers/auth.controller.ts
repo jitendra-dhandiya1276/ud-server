@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { authService } from '../services/auth.service';
 import { sendSuccess, sendError } from '../../../utils/response';
+import { prisma } from '../../../config/prisma';
 
 export class AuthController {
   async register(req: Request, res: Response) {
@@ -52,7 +53,6 @@ export class AuthController {
 
   async me(req: Request, res: Response) {
     if (!req.user) return sendError(res, 'Unauthorized', 401);
-    const { prisma } = await import('../../../config/prisma');
     const user = await prisma.user.findUnique({
       where: { id: req.user.userId },
       select: {

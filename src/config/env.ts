@@ -1,6 +1,15 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+const REQUIRED_IN_PROD = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'DATABASE_URL'];
+if (process.env.NODE_ENV === 'production') {
+  const missing = REQUIRED_IN_PROD.filter(k => !process.env[k]);
+  if (missing.length > 0) {
+    console.error(`FATAL: missing required environment variables: ${missing.join(', ')}`);
+    process.exit(1);
+  }
+}
+
 export const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '5000', 10),

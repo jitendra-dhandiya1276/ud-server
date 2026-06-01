@@ -37,8 +37,8 @@ export class SettingsController {
 
   async upsertBulk(req: Request, res: Response) {
     const { settings } = req.body;
-    await Promise.all(
-      settings.map((s: { key: string; value: string }) =>
+    await prisma.$transaction(
+      (settings as { key: string; value: string }[]).map(s =>
         prisma.setting.upsert({
           where: { key: s.key },
           create: { key: s.key, value: s.value },

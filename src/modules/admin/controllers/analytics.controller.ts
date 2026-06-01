@@ -4,10 +4,11 @@ import { sendSuccess } from '../../../utils/response';
 
 export class AnalyticsController {
   async getDashboard(req: Request, res: Response) {
-    const today = new Date();
-    const startOfDay = new Date(today.setHours(0, 0, 0, 0));
-    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const last30Days = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const now = new Date();
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     const [
       totalRevenue,

@@ -40,9 +40,11 @@ export class HomepageController {
 
   async reorderSections(req: Request, res: Response) {
     const { items } = req.body;
-    await Promise.all(items.map((item: { id: string; sortOrder: number }) =>
-      prisma.homepageSection.update({ where: { id: item.id }, data: { sortOrder: item.sortOrder } })
-    ));
+    await prisma.$transaction(
+      (items as { id: string; sortOrder: number }[]).map(item =>
+        prisma.homepageSection.update({ where: { id: item.id }, data: { sortOrder: item.sortOrder } })
+      )
+    );
     return sendSuccess(res, null, 'Order updated');
   }
 

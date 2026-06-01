@@ -123,7 +123,7 @@ async function initDatabase() {
         role: 'SUPER_ADMIN', isVerified: true,
       },
     });
-    logger.info(`Admin created — email: ${adminEmail}  password: ${adminPassword} (change this!)`);
+    logger.info(`Admin created — email: ${adminEmail} (set ADMIN_PASSWORD env var to change the default)`);
   }
 
   // 3. Categories (unique by slug)
@@ -186,9 +186,16 @@ const startServer = async () => {
       logger.info(`API: http://localhost:${PORT}/api/v1`);
     });
 
-    const gracefulShutdown = async (signal: string) => {
+    const gracefulShutdown = (signal: string) => {
       logger.info(`${signal} received. Shutting down...`);
+      const forceExit = setTimeout(() => {
+        logger.error('Graceful shutdown timed out — forcing exit');
+        process.exit(1);
+      }, 10_000);
+      forceExit.unref();
+
       server.close(async () => {
+        clearTimeout(forceExit);
         await prisma.$disconnect();
         process.exit(0);
       });

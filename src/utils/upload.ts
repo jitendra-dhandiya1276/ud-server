@@ -56,8 +56,8 @@ export const optimizeImage = async (
     .webp({ quality })
     .toFile(target);
 
-  if (target !== inputPath && fs.existsSync(inputPath)) {
-    fs.unlinkSync(inputPath);
+  if (target !== inputPath) {
+    await fs.promises.unlink(inputPath).catch(() => {});
   }
 
   return target;
@@ -71,8 +71,6 @@ export const getImageUrl = (filePath: string): string => {
   return `${config.baseUrl}/uploads/${rel}`;
 };
 
-export const deleteFile = (filePath: string): void => {
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
-  }
+export const deleteFile = async (filePath: string): Promise<void> => {
+  await fs.promises.unlink(filePath).catch(() => {});
 };
