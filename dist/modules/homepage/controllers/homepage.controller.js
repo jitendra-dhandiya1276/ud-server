@@ -36,7 +36,7 @@ class HomepageController {
     }
     async reorderSections(req, res) {
         const { items } = req.body;
-        await Promise.all(items.map((item) => prisma_1.prisma.homepageSection.update({ where: { id: item.id }, data: { sortOrder: item.sortOrder } })));
+        await prisma_1.prisma.$transaction(items.map(item => prisma_1.prisma.homepageSection.update({ where: { id: item.id }, data: { sortOrder: item.sortOrder } })));
         return (0, response_1.sendSuccess)(res, null, 'Order updated');
     }
     async getFullHomepageData(req, res) {

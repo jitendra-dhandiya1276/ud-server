@@ -113,7 +113,7 @@ async function initDatabase() {
                 role: 'SUPER_ADMIN', isVerified: true,
             },
         });
-        logger_1.logger.info(`Admin created — email: ${adminEmail}  password: ${adminPassword} (change this!)`);
+        logger_1.logger.info(`Admin created — email: ${adminEmail} (set ADMIN_PASSWORD env var to change the default)`);
     }
     // 3. Categories (unique by slug)
     await prisma_1.prisma.category.createMany({
@@ -135,18 +135,25 @@ async function initDatabase() {
     });
     // 5. Homepage sections — only if none exist yet
     if ((await prisma_1.prisma.homepageSection.count()) === 0) {
-        await prisma_1.prisma.homepageSection.createMany({ data: INIT_HOMEPAGE_SECTIONS });
+        await prisma_1.prisma.homepageSection.createMany({
+            data: INIT_HOMEPAGE_SECTIONS.map(s => ({ ...s, type: s.type })),
+        });
     }
     // 6. Banners — only if none exist yet
     if ((await prisma_1.prisma.banner.count()) === 0) {
-        await prisma_1.prisma.banner.createMany({ data: INIT_BANNERS });
+        await prisma_1.prisma.banner.createMany({
+            data: INIT_BANNERS.map(b => ({ ...b, type: b.type })),
+        });
     }
     // 7. Testimonials — only if none exist yet
     if ((await prisma_1.prisma.testimonial.count()) === 0) {
         await prisma_1.prisma.testimonial.createMany({ data: INIT_TESTIMONIALS });
     }
     // 8. Coupons (unique by code)
-    await prisma_1.prisma.coupon.createMany({ data: INIT_COUPONS, skipDuplicates: true });
+    await prisma_1.prisma.coupon.createMany({
+        data: INIT_COUPONS.map(c => ({ ...c, type: c.type })),
+        skipDuplicates: true,
+    });
     // 9. SEO meta (unique by page)
     await prisma_1.prisma.seoMeta.createMany({ data: INIT_SEO, skipDuplicates: true });
     // 10. CMS pages (unique by slug)
@@ -163,9 +170,15 @@ const startServer = async () => {
             logger_1.logger.info(`Server running in ${env_1.config.nodeEnv} mode on port ${PORT}`);
             logger_1.logger.info(`API: http://localhost:${PORT}/api/v1`);
         });
-        const gracefulShutdown = async (signal) => {
+        const gracefulShutdown = (signal) => {
             logger_1.logger.info(`${signal} received. Shutting down...`);
+            const forceExit = setTimeout(() => {
+                logger_1.logger.error('Graceful shutdown timed out — forcing exit');
+                process.exit(1);
+            }, 10000);
+            forceExit.unref();
             server.close(async () => {
+                clearTimeout(forceExit);
                 await prisma_1.prisma.$disconnect();
                 process.exit(0);
             });

@@ -58,6 +58,15 @@ class CartController {
     async updateItem(req, res) {
         const { itemId } = req.params;
         const { quantity } = req.body;
+        const userId = req.user?.userId;
+        const sessionId = req.headers['x-session-id'];
+        const cartWhere = userId ? { userId } : { sessionId };
+        const cart = await prisma_1.prisma.cart.findFirst({ where: cartWhere });
+        if (!cart)
+            return (0, response_1.sendError)(res, 'Cart not found', 404);
+        const item = await prisma_1.prisma.cartItem.findFirst({ where: { id: itemId, cartId: cart.id } });
+        if (!item)
+            return (0, response_1.sendError)(res, 'Cart item not found', 404);
         if (quantity < 1) {
             await prisma_1.prisma.cartItem.delete({ where: { id: itemId } });
         }
@@ -68,6 +77,15 @@ class CartController {
     }
     async removeItem(req, res) {
         const { itemId } = req.params;
+        const userId = req.user?.userId;
+        const sessionId = req.headers['x-session-id'];
+        const cartWhere = userId ? { userId } : { sessionId };
+        const cart = await prisma_1.prisma.cart.findFirst({ where: cartWhere });
+        if (!cart)
+            return (0, response_1.sendError)(res, 'Cart not found', 404);
+        const item = await prisma_1.prisma.cartItem.findFirst({ where: { id: itemId, cartId: cart.id } });
+        if (!item)
+            return (0, response_1.sendError)(res, 'Cart item not found', 404);
         await prisma_1.prisma.cartItem.delete({ where: { id: itemId } });
         return (0, response_1.sendSuccess)(res, null, 'Item removed');
     }
@@ -82,12 +100,15 @@ class CartController {
     }
     async applyCoupon(req, res) {
         const { code, cartTotal } = req.body;
+        const now = new Date();
         const coupon = await prisma_1.prisma.coupon.findFirst({
             where: {
                 code: { equals: code },
                 isActive: true,
-                OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
-                OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }],
+                AND: [
+                    { OR: [{ expiresAt: null }, { expiresAt: { gte: now } }] },
+                    { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+                ],
             },
         });
         if (!coupon)

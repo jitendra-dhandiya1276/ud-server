@@ -12,13 +12,17 @@ class ProductService {
             isActive: true,
             deletedAt: null,
         };
+        // Collect AND conditions so that search text and price range don't overwrite each other
+        const andConditions = [];
         if (filters.search) {
-            where.OR = [
-                { name: { contains: filters.search } },
-                { description: { contains: filters.search } },
-                { brand: { contains: filters.search } },
-                { sku: { contains: filters.search } },
-            ];
+            andConditions.push({
+                OR: [
+                    { name: { contains: filters.search } },
+                    { description: { contains: filters.search } },
+                    { brand: { contains: filters.search } },
+                    { sku: { contains: filters.search } },
+                ],
+            });
         }
         if (filters.categoryId)
             where.categoryId = filters.categoryId;
@@ -35,37 +39,34 @@ class ProductService {
         if (filters.isBestSeller !== undefined)
             where.isBestSeller = filters.isBestSeller;
         if (filters.minPrice !== undefined || filters.maxPrice !== undefined) {
-            where.OR = [
-                {
-                    salePrice: {
-                        gte: filters.minPrice,
-                        lte: filters.maxPrice,
+            andConditions.push({
+                OR: [
+                    { salePrice: { gte: filters.minPrice, lte: filters.maxPrice } },
+                    {
+                        AND: [
+                            { salePrice: null },
+                            { basePrice: { gte: filters.minPrice, lte: filters.maxPrice } },
+                        ],
                     },
-                },
-                {
-                    AND: [
-                        { salePrice: null },
-                        {
-                            basePrice: {
-                                gte: filters.minPrice,
-                                lte: filters.maxPrice,
-                            },
-                        },
-                    ],
-                },
-            ];
+                ],
+            });
         }
+        if (andConditions.length > 0)
+            where.AND = andConditions;
         if (filters.brands?.length)
             where.brand = { in: filters.brands };
         if (filters.inStock)
             where.stockQuantity = { gt: 0 };
         if (filters.rating)
             where.avgRating = { gte: filters.rating };
-        if (filters.sizes?.length) {
-            where.variants = { some: { size: { in: filters.sizes }, isActive: true } };
-        }
-        if (filters.colors?.length) {
-            where.variants = { some: { color: { in: filters.colors }, isActive: true } };
+        // Merge size and color into a single variant filter so they don't overwrite each other
+        if (filters.sizes?.length || filters.colors?.length) {
+            const variantFilter = { isActive: true };
+            if (filters.sizes?.length)
+                variantFilter.size = { in: filters.sizes };
+            if (filters.colors?.length)
+                variantFilter.color = { in: filters.colors };
+            where.variants = { some: variantFilter };
         }
         const orderBy = {};
         switch (filters.sortBy) {

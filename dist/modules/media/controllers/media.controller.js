@@ -49,9 +49,9 @@ class MediaController {
         const { id } = req.params;
         const media = await prisma_1.prisma.media.findUnique({ where: { id } });
         if (!media)
-            return (0, response_1.sendSuccess)(res, null, 'Not found');
+            return (0, response_1.sendError)(res, 'Media not found', 404);
         const filePath = path_1.default.join(env_1.config.upload.path, media.folder.toLowerCase(), media.filename);
-        (0, upload_1.deleteFile)(filePath);
+        await (0, upload_1.deleteFile)(filePath);
         await prisma_1.prisma.media.delete({ where: { id } });
         return (0, response_1.sendSuccess)(res, null, 'Media deleted');
     }

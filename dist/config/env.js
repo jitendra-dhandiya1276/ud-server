@@ -6,6 +6,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.config = void 0;
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
+const REQUIRED_IN_PROD = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'DATABASE_URL'];
+if (process.env.NODE_ENV === 'production') {
+    const missing = REQUIRED_IN_PROD.filter(k => !process.env[k]);
+    if (missing.length > 0) {
+        console.error(`FATAL: missing required environment variables: ${missing.join(', ')}`);
+        process.exit(1);
+    }
+}
 exports.config = {
     nodeEnv: process.env.NODE_ENV || 'development',
     port: parseInt(process.env.PORT || '5000', 10),

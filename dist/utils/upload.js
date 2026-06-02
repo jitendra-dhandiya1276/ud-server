@@ -48,8 +48,8 @@ const optimizeImage = async (inputPath, outputPath, options) => {
         .resize(width, height, { fit: 'inside', withoutEnlargement: true })
         .webp({ quality })
         .toFile(target);
-    if (target !== inputPath && fs_1.default.existsSync(inputPath)) {
-        fs_1.default.unlinkSync(inputPath);
+    if (target !== inputPath) {
+        await fs_1.default.promises.unlink(inputPath).catch(() => { });
     }
     return target;
 };
@@ -63,9 +63,7 @@ const getImageUrl = (filePath) => {
     return `${env_1.config.baseUrl}/uploads/${rel}`;
 };
 exports.getImageUrl = getImageUrl;
-const deleteFile = (filePath) => {
-    if (fs_1.default.existsSync(filePath)) {
-        fs_1.default.unlinkSync(filePath);
-    }
+const deleteFile = async (filePath) => {
+    await fs_1.default.promises.unlink(filePath).catch(() => { });
 };
 exports.deleteFile = deleteFile;

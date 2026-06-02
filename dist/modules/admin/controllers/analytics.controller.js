@@ -5,10 +5,11 @@ const prisma_1 = require("../../../config/prisma");
 const response_1 = require("../../../utils/response");
 class AnalyticsController {
     async getDashboard(req, res) {
-        const today = new Date();
-        const startOfDay = new Date(today.setHours(0, 0, 0, 0));
-        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-        const last30Days = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const now = new Date();
+        const startOfDay = new Date(now);
+        startOfDay.setHours(0, 0, 0, 0);
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
         const [totalRevenue, todayRevenue, monthRevenue, totalOrders, pendingOrders, totalProducts, totalCustomers, recentOrders, topProducts, ordersByStatus, revenueByDay,] = await Promise.all([
             prisma_1.prisma.order.aggregate({
                 where: { paymentStatus: 'PAID' },

@@ -3,6 +3,7 @@ import app from './app';
 import { config } from './config/env';
 import { prisma } from './config/prisma';
 import { logger } from './utils/logger';
+import { HomepageSectionType, BannerType, CouponType } from '@prisma/client';
 
 const PORT = config.port;
 
@@ -148,12 +149,16 @@ async function initDatabase() {
 
   // 5. Homepage sections — only if none exist yet
   if ((await prisma.homepageSection.count()) === 0) {
-    await prisma.homepageSection.createMany({ data: INIT_HOMEPAGE_SECTIONS });
+    await prisma.homepageSection.createMany({
+      data: INIT_HOMEPAGE_SECTIONS.map(s => ({ ...s, type: s.type as HomepageSectionType })),
+    });
   }
 
   // 6. Banners — only if none exist yet
   if ((await prisma.banner.count()) === 0) {
-    await prisma.banner.createMany({ data: INIT_BANNERS });
+    await prisma.banner.createMany({
+      data: INIT_BANNERS.map(b => ({ ...b, type: b.type as BannerType })),
+    });
   }
 
   // 7. Testimonials — only if none exist yet
@@ -162,7 +167,10 @@ async function initDatabase() {
   }
 
   // 8. Coupons (unique by code)
-  await prisma.coupon.createMany({ data: INIT_COUPONS, skipDuplicates: true });
+  await prisma.coupon.createMany({
+    data: INIT_COUPONS.map(c => ({ ...c, type: c.type as CouponType })),
+    skipDuplicates: true,
+  });
 
   // 9. SEO meta (unique by page)
   await prisma.seoMeta.createMany({ data: INIT_SEO, skipDuplicates: true });
