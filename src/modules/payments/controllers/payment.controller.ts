@@ -5,10 +5,16 @@ import { prisma } from '../../../config/prisma';
 import { config } from '../../../config/env';
 import { sendSuccess, sendError } from '../../../utils/response';
 
-const razorpay = new Razorpay({
-  key_id: config.razorpay.keyId,
-  key_secret: config.razorpay.keySecret,
-});
+let _razorpay: Razorpay | null = null;
+const getRazorpay = () => {
+  if (!_razorpay) {
+    if (!config.razorpay.keyId || !config.razorpay.keySecret) {
+      throw new Error('Razorpay keys not configured');
+    }
+    _razorpay = new Razorpay({ key_id: config.razorpay.keyId, key_secret: config.razorpay.keySecret });
+  }
+  return _razorpay;
+};
 
 export class PaymentController {
   async createRazorpayOrder(req: Request, res: Response) {
@@ -17,7 +23,7 @@ export class PaymentController {
     if (!order) return sendError(res, 'Order not found', 404);
     if (!req.user || order.userId !== req.user.userId) return sendError(res, 'Forbidden', 403);
 
-    const razorpayOrder = await razorpay.orders.create({
+    const razorpayOrder = await getRazorpay().orders.create({
       amount: Math.round(Number(order.total) * 100),
       currency: 'INR',
       receipt: order.orderNumber,
