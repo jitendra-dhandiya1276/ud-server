@@ -3,6 +3,14 @@ import { productService } from '../services/product.service';
 import { sendSuccess, sendPaginated, sendError } from '../../../utils/response';
 import { getImageUrl } from '../../../utils/upload';
 
+const parseArray = (val: any): string[] | undefined => {
+  if (!val) return undefined;
+  if (Array.isArray(val)) return val;
+  try { const p = JSON.parse(val); return Array.isArray(p) ? p : undefined; } catch {}
+  if (typeof val === 'string') return val.split(',').map(s => s.trim()).filter(Boolean);
+  return undefined;
+};
+
 export class ProductController {
   async getProducts(req: Request, res: Response) {
     const {
@@ -48,7 +56,11 @@ export class ProductController {
       sortOrder: index,
     }));
 
-    const product = await productService.createProduct({ ...req.body, images });
+    const body = { ...req.body, images };
+    body.tags = parseArray(body.tags);
+    body.collectionIds = parseArray(body.collectionIds);
+
+    const product = await productService.createProduct(body);
     return sendSuccess(res, product, 'Product created', 201);
   }
 
@@ -72,7 +84,11 @@ export class ProductController {
       ? (typeof req.body.removeImageIds === 'string' ? JSON.parse(req.body.removeImageIds) : req.body.removeImageIds)
       : [];
 
-    const product = await productService.updateProduct(id, { ...req.body, newImages, removeImageIds });
+    const body = { ...req.body, newImages, removeImageIds };
+    body.tags = parseArray(body.tags);
+    body.collectionIds = parseArray(body.collectionIds);
+
+    const product = await productService.updateProduct(id, body);
     return sendSuccess(res, product, 'Product updated');
   }
 
