@@ -26,16 +26,40 @@ const parseNum = (val: any): number | undefined => {
 const sanitizeProductBody = (body: any) => {
   const b = { ...body };
   // Booleans
-  for (const k of ['isFeatured','isTrending','isNewArrival','isBestSeller','isActive']) {
+  for (const k of ['isFeatured','isTrending','isNewArrival','isBestSeller','isActive','trackInventory']) {
     if (k in b) b[k] = parseBool(b[k]);
   }
   // Numbers
-  for (const k of ['basePrice','salePrice','stockQuantity','sortOrder']) {
+  for (const k of ['basePrice','salePrice','stockQuantity','sortOrder','taxPercent','costPrice','weight','lowStockAlert']) {
     if (k in b) b[k] = parseNum(b[k]);
   }
   // Arrays
   b.tags = parseArray(b.tags);
   b.collectionIds = parseArray(b.collectionIds);
+  // Field name mapping: frontend → Prisma schema
+  if (b.material !== undefined) { b.fabric = b.fabric || b.material; delete b.material; }
+  if (b.metaDescription !== undefined) { b.metaDesc = b.metaDesc || b.metaDescription; delete b.metaDescription; }
+  // Remove fields not in Prisma schema
+  delete b.fit;
+  delete b.style;
+  // Parse variants JSON string → flat variantsData array
+  if (b.variants && !b.variantsData) {
+    try {
+      const parsed = typeof b.variants === 'string' ? JSON.parse(b.variants) : b.variants;
+      if (Array.isArray(parsed)) {
+        b.variantsData = parsed.flatMap((v: any) =>
+          (v.sizes || []).map((s: any) => ({
+            color: v.color || undefined,
+            colorHex: v.colorHex || undefined,
+            size: s.size || undefined,
+            stockQuantity: s.stock ? Number(s.stock) : 0,
+            price: s.price ? Number(s.price) : undefined,
+          }))
+        );
+      }
+    } catch {}
+    delete b.variants;
+  }
   return b;
 };
 
