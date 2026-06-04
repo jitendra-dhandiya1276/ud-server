@@ -11,6 +11,34 @@ const parseArray = (val: any): string[] | undefined => {
   return undefined;
 };
 
+const parseBool = (val: any): boolean | undefined => {
+  if (val === undefined || val === null || val === '') return undefined;
+  if (typeof val === 'boolean') return val;
+  return val === 'true' || val === '1';
+};
+
+const parseNum = (val: any): number | undefined => {
+  if (val === undefined || val === null || val === '') return undefined;
+  const n = Number(val);
+  return isNaN(n) ? undefined : n;
+};
+
+const sanitizeProductBody = (body: any) => {
+  const b = { ...body };
+  // Booleans
+  for (const k of ['isFeatured','isTrending','isNewArrival','isBestSeller','isActive']) {
+    if (k in b) b[k] = parseBool(b[k]);
+  }
+  // Numbers
+  for (const k of ['basePrice','salePrice','stockQuantity','sortOrder']) {
+    if (k in b) b[k] = parseNum(b[k]);
+  }
+  // Arrays
+  b.tags = parseArray(b.tags);
+  b.collectionIds = parseArray(b.collectionIds);
+  return b;
+};
+
 export class ProductController {
   async getProducts(req: Request, res: Response) {
     const {
@@ -56,10 +84,7 @@ export class ProductController {
       sortOrder: index,
     }));
 
-    const body = { ...req.body, images };
-    body.tags = parseArray(body.tags);
-    body.collectionIds = parseArray(body.collectionIds);
-
+    const body = sanitizeProductBody({ ...req.body, images });
     const product = await productService.createProduct(body);
     return sendSuccess(res, product, 'Product created', 201);
   }
@@ -84,10 +109,7 @@ export class ProductController {
       ? (typeof req.body.removeImageIds === 'string' ? JSON.parse(req.body.removeImageIds) : req.body.removeImageIds)
       : [];
 
-    const body = { ...req.body, newImages, removeImageIds };
-    body.tags = parseArray(body.tags);
-    body.collectionIds = parseArray(body.collectionIds);
-
+    const body = sanitizeProductBody({ ...req.body, newImages, removeImageIds });
     const product = await productService.updateProduct(id, body);
     return sendSuccess(res, product, 'Product updated');
   }
