@@ -203,6 +203,7 @@ model Product {
   avgRating       Decimal  @db.Decimal(3, 2) @default(0)
   totalSold       Int      @default(0)
   viewCount       Int      @default(0)
+  gender          String   @default("UNISEX")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   deletedAt       DateTime?
@@ -227,6 +228,7 @@ model Product {
   @@index([isActive, isFeatured])
   @@index([isActive, isTrending])
   @@index([isActive, isNewArrival])
+  @@index([gender])
   @@map("products")
 }
 

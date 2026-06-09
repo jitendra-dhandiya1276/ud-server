@@ -22,6 +22,7 @@ export interface ProductFilters {
   isBestSeller?: boolean;
   inStock?: boolean;
   rating?: number;
+  gender?: string;
   sortBy?: 'price_asc' | 'price_desc' | 'newest' | 'popular' | 'rating' | 'name';
 }
 
@@ -55,6 +56,9 @@ export class ProductService {
     if (filters.isTrending !== undefined) where.isTrending = filters.isTrending;
     if (filters.isNewArrival !== undefined) where.isNewArrival = filters.isNewArrival;
     if (filters.isBestSeller !== undefined) where.isBestSeller = filters.isBestSeller;
+    if (filters.gender && filters.gender !== 'ALL') {
+      (where as any).gender = { in: [filters.gender.toUpperCase(), 'UNISEX'] };
+    }
 
     if (filters.minPrice !== undefined || filters.maxPrice !== undefined) {
       andConditions.push({
@@ -330,9 +334,10 @@ export class ProductService {
     });
   }
 
-  async getFeaturedProducts(limit = 8) {
+  async getFeaturedProducts(limit = 8, gender?: string) {
+    const gWhere = gender && gender !== 'ALL' ? { gender: { in: [gender.toUpperCase(), 'UNISEX'] } } : {};
     return prisma.product.findMany({
-      where: { isActive: true, isFeatured: true, deletedAt: null },
+      where: { isActive: true, isFeatured: true, deletedAt: null, ...gWhere } as any,
       take: limit,
       orderBy: { sortOrder: 'asc' },
       include: {
@@ -343,9 +348,10 @@ export class ProductService {
     });
   }
 
-  async getTrendingProducts(limit = 8) {
+  async getTrendingProducts(limit = 8, gender?: string) {
+    const gWhere = gender && gender !== 'ALL' ? { gender: { in: [gender.toUpperCase(), 'UNISEX'] } } : {};
     return prisma.product.findMany({
-      where: { isActive: true, isTrending: true, deletedAt: null },
+      where: { isActive: true, isTrending: true, deletedAt: null, ...gWhere } as any,
       take: limit,
       orderBy: [{ totalSold: 'desc' }, { sortOrder: 'asc' }],
       include: {
@@ -356,9 +362,10 @@ export class ProductService {
     });
   }
 
-  async getNewArrivals(limit = 8) {
+  async getNewArrivals(limit = 8, gender?: string) {
+    const gWhere = gender && gender !== 'ALL' ? { gender: { in: [gender.toUpperCase(), 'UNISEX'] } } : {};
     return prisma.product.findMany({
-      where: { isActive: true, isNewArrival: true, deletedAt: null },
+      where: { isActive: true, isNewArrival: true, deletedAt: null, ...gWhere } as any,
       take: limit,
       orderBy: { createdAt: 'desc' },
       include: {
@@ -369,9 +376,10 @@ export class ProductService {
     });
   }
 
-  async getBestSellers(limit = 8) {
+  async getBestSellers(limit = 8, gender?: string) {
+    const gWhere = gender && gender !== 'ALL' ? { gender: { in: [gender.toUpperCase(), 'UNISEX'] } } : {};
     return prisma.product.findMany({
-      where: { isActive: true, isBestSeller: true, deletedAt: null },
+      where: { isActive: true, isBestSeller: true, deletedAt: null, ...gWhere } as any,
       take: limit,
       orderBy: { totalSold: 'desc' },
       include: {

@@ -42,6 +42,8 @@ const sanitizeProductBody = (body: any) => {
   // Remove fields not in Prisma schema
   delete b.fit;
   delete b.style;
+  // Normalize gender value
+  if (b.gender) b.gender = String(b.gender).toUpperCase();
   // Parse variants JSON string → flat variantsData array
   if (b.variants && !b.variantsData) {
     try {
@@ -68,7 +70,7 @@ export class ProductController {
     const {
       page, limit, search, categoryId, categorySlug, collectionSlug,
       minPrice, maxPrice, sizes, colors, brands, isFeatured, isTrending,
-      isNewArrival, isBestSeller, inStock, rating, sortBy,
+      isNewArrival, isBestSeller, inStock, rating, sortBy, gender,
     } = req.query as Record<string, string>;
 
     const parseBool = (v: string | undefined) =>
@@ -88,6 +90,7 @@ export class ProductController {
       inStock:      inStock === 'true' ? true : undefined,
       rating: rating ? Number(rating) : undefined,
       sortBy: sortBy as any,
+      gender: gender || undefined,
     });
 
     return sendPaginated(res, result.products, result.total, result.page, result.limit);
@@ -145,22 +148,26 @@ export class ProductController {
   }
 
   async getFeaturedProducts(req: Request, res: Response) {
-    const products = await productService.getFeaturedProducts(Number(req.query.limit) || 8);
+    const { gender } = req.query as Record<string, string>;
+    const products = await productService.getFeaturedProducts(Number(req.query.limit) || 8, gender);
     return sendSuccess(res, products, 'Featured products');
   }
 
   async getTrendingProducts(req: Request, res: Response) {
-    const products = await productService.getTrendingProducts(Number(req.query.limit) || 8);
+    const { gender } = req.query as Record<string, string>;
+    const products = await productService.getTrendingProducts(Number(req.query.limit) || 8, gender);
     return sendSuccess(res, products, 'Trending products');
   }
 
   async getNewArrivals(req: Request, res: Response) {
-    const products = await productService.getNewArrivals(Number(req.query.limit) || 8);
+    const { gender } = req.query as Record<string, string>;
+    const products = await productService.getNewArrivals(Number(req.query.limit) || 8, gender);
     return sendSuccess(res, products, 'New arrivals');
   }
 
   async getBestSellers(req: Request, res: Response) {
-    const products = await productService.getBestSellers(Number(req.query.limit) || 8);
+    const { gender } = req.query as Record<string, string>;
+    const products = await productService.getBestSellers(Number(req.query.limit) || 8, gender);
     return sendSuccess(res, products, 'Best sellers');
   }
 
