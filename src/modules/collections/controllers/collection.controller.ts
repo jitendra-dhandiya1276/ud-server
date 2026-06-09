@@ -73,6 +73,55 @@ export class CollectionController {
     await prisma.collection.delete({ where: { id } });
     return sendSuccess(res, null, 'Collection deleted');
   }
+
+  async getProducts(req: Request, res: Response) {
+    const { id } = req.params;
+    const { page, limit, search } = req.query as Record<string, string>;
+    const { page: p, limit: l, skip } = paginationParams(page || '1', limit || '20');
+
+    const where: any = { collections: { some: { collectionId: id } }, deletedAt: null };
+    if (search) where.name = { contains: search };
+
+    const [products, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        skip,
+        take: l,
+        select: {
+          id: true, name: true, slug: true, basePrice: true, salePrice: true, isActive: true,
+          images: { where: { isPrimary: true }, take: 1, select: { url: true } },
+          category: { select: { name: true } },
+        },
+      }),
+      prisma.product.count({ where }),
+    ]);
+    return sendPaginated(res, products, total, p, l, 'Products fetched');
+  }
+
+  async addProduct(req: Request, res: Response) {
+    const { id } = req.params;
+    const { productId } = req.body;
+    if (!productId) return sendError(res, 'productId required', 400);
+
+    const col = await prisma.collection.findUnique({ where: { id } });
+    if (!col) return sendError(res, 'Collection not found', 404);
+
+    const existing = await prisma.productCollection.findUnique({
+      where: { productId_collectionId: { productId, collectionId: id } },
+    });
+    if (existing) return sendSuccess(res, existing, 'Already in collection');
+
+    const result = await prisma.productCollection.create({ data: { productId, collectionId: id } });
+    return sendSuccess(res, result, 'Product added', 201);
+  }
+
+  async removeProduct(req: Request, res: Response) {
+    const { id, productId } = req.params;
+    await prisma.productCollection.delete({
+      where: { productId_collectionId: { productId, collectionId: id } },
+    });
+    return sendSuccess(res, null, 'Product removed');
+  }
 }
 
 export const collectionController = new CollectionController();

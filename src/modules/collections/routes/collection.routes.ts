@@ -15,4 +15,9 @@ router.post('/', authenticate, isAdmin, upload.single('image'), collectionContro
 router.put('/:id', authenticate, isAdmin, upload.single('image'), collectionController.update.bind(collectionController));
 router.delete('/:id', authenticate, isAdmin, collectionController.delete.bind(collectionController));
 
+// Collection ↔ Product management
+router.get('/:id/products', authenticate, isAdmin, collectionController.getProducts.bind(collectionController));
+router.post('/:id/products', authenticate, isAdmin, collectionController.addProduct.bind(collectionController));
+router.delete('/:id/products/:productId', authenticate, isAdmin, collectionController.removeProduct.bind(collectionController));
+
 export default router;
