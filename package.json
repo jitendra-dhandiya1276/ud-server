@@ -11,7 +11,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "seed:gender": "ts-node --transpile-only src/scripts/seedGenderDemo.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

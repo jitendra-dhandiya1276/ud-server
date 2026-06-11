@@ -14,12 +14,21 @@ const HERO_H = 560;
 export class BannerController {
   async getByType(req: Request, res: Response) {
     const { type } = req.params;
+    const { gender } = req.query as Record<string, string>;
+
+    const where: any = {
+      type: type.toUpperCase() as any,
+      isActive: true,
+      OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
+    };
+
+    // Filter by gender: show banners targeted at this gender + ALL
+    if (gender && gender.toUpperCase() !== 'ALL') {
+      where.gender = { in: [gender.toUpperCase(), 'ALL'] };
+    }
+
     const banners = await prisma.banner.findMany({
-      where: {
-        type: type.toUpperCase() as any,
-        isActive: true,
-        OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
-      },
+      where,
       orderBy: { sortOrder: 'asc' },
     });
     return sendSuccess(res, banners, 'Banners fetched');
@@ -65,6 +74,7 @@ export class BannerController {
     if (data.buttonText !== undefined) { data.ctaText = data.buttonText; delete data.buttonText; }
     if (data.isActive !== undefined) data.isActive = data.isActive === 'true' || data.isActive === true;
     if (data.sortOrder !== undefined) data.sortOrder = parseInt(data.sortOrder, 10) || 0;
+    if (data.gender !== undefined) data.gender = String(data.gender).toUpperCase();
     return data;
   }
 

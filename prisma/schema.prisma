@@ -622,6 +622,7 @@ model Banner {
   link        String?
   ctaText     String?
   type        BannerType @default(HERO)
+  gender      String     @default("ALL")
   position    String?
   isActive    Boolean    @default(true)
   sortOrder   Int        @default(0)
@@ -631,6 +632,7 @@ model Banner {
   updatedAt   DateTime   @updatedAt
 
   @@index([type, isActive])
+  @@index([gender])
   @@map("banners")
 }
 
