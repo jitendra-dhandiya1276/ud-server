@@ -662,6 +662,8 @@ model HomepageSection {
 
 enum HomepageSectionType {
   HERO_SLIDER
+  PROMO_STRIP
+  SHOP_LATEST
   PROMOTIONAL_BANNERS
   FEATURED_CATEGORIES
   TRENDING_PRODUCTS
@@ -669,6 +671,8 @@ enum HomepageSectionType {
   BEST_SELLERS
   FEATURED_PRODUCTS
   COLLECTION_SHOWCASE
+  COLLECTION_BANNERS
+  COLLECTION_BANNER
   SHOP_BY_LOOK
   INSTAGRAM_GALLERY
   TESTIMONIALS
@@ -677,6 +681,24 @@ enum HomepageSectionType {
   VIDEO_SECTION
   SEO_CONTENT
   CUSTOM_HTML
+  CUSTOM_BANNER
+  STORE_LOCATOR
+}
+
+model Store {
+  id        String   @id @default(uuid())
+  name      String
+  address   String   @db.Text
+  city      String?
+  phone     String?
+  email     String?
+  hours     String?
+  image     String?
+  mapLink   String?
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Testimonial {

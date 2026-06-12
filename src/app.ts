@@ -35,6 +35,7 @@ import analyticsRoutes from './modules/admin/routes/analytics.routes';
 import settingsRoutes from './modules/settings/routes/settings.routes';
 import seoRoutes from './modules/seo/routes/seo.routes';
 import mediaRoutes from './modules/media/routes/media.routes';
+import storeRoutes from './modules/stores/routes/store.routes';
 
 const app = express();
 
@@ -139,6 +140,7 @@ app.use(`${v1}/analytics`, analyticsRoutes);
 app.use(`${v1}/settings`, settingsRoutes);
 app.use(`${v1}/seo`, seoRoutes);
 app.use(`${v1}/media`, mediaRoutes);
+app.use(`${v1}/stores`, storeRoutes);
 
 // 404 & error handler
 app.use(notFound);

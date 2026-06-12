@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Request } from 'express';
 import { config } from '../config/env';
 
-type UploadFolder = 'products' | 'banners' | 'categories' | 'blogs' | 'users' | 'media';
+type UploadFolder = 'products' | 'banners' | 'categories' | 'blogs' | 'users' | 'media' | 'stores';
 
 const getUploadPath = (folder: UploadFolder): string => {
   const dir = path.join(config.upload.path, folder);
