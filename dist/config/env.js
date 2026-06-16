@@ -38,6 +38,11 @@ exports.config = {
         keyId: process.env.RAZORPAY_KEY_ID || '',
         keySecret: process.env.RAZORPAY_KEY_SECRET || '',
     },
+    cashfree: {
+        appId: process.env.CASHFREE_APP_ID || '',
+        secretKey: process.env.CASHFREE_SECRET_KEY || '',
+        env: (process.env.CASHFREE_ENV || 'sandbox'),
+    },
     google: {
         clientId: process.env.GOOGLE_CLIENT_ID || '',
         clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',

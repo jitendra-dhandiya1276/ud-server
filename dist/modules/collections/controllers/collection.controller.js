@@ -78,6 +78,51 @@ class CollectionController {
         await prisma_1.prisma.collection.delete({ where: { id } });
         return (0, response_1.sendSuccess)(res, null, 'Collection deleted');
     }
+    async getProducts(req, res) {
+        const { id } = req.params;
+        const { page, limit, search } = req.query;
+        const { page: p, limit: l, skip } = (0, slugify_1.paginationParams)(page || '1', limit || '20');
+        const where = { collections: { some: { collectionId: id } }, deletedAt: null };
+        if (search)
+            where.name = { contains: search };
+        const [products, total] = await Promise.all([
+            prisma_1.prisma.product.findMany({
+                where,
+                skip,
+                take: l,
+                select: {
+                    id: true, name: true, slug: true, basePrice: true, salePrice: true, isActive: true,
+                    images: { where: { isPrimary: true }, take: 1, select: { url: true } },
+                    category: { select: { name: true } },
+                },
+            }),
+            prisma_1.prisma.product.count({ where }),
+        ]);
+        return (0, response_1.sendPaginated)(res, products, total, p, l, 'Products fetched');
+    }
+    async addProduct(req, res) {
+        const { id } = req.params;
+        const { productId } = req.body;
+        if (!productId)
+            return (0, response_1.sendError)(res, 'productId required', 400);
+        const col = await prisma_1.prisma.collection.findUnique({ where: { id } });
+        if (!col)
+            return (0, response_1.sendError)(res, 'Collection not found', 404);
+        const existing = await prisma_1.prisma.productCollection.findUnique({
+            where: { productId_collectionId: { productId, collectionId: id } },
+        });
+        if (existing)
+            return (0, response_1.sendSuccess)(res, existing, 'Already in collection');
+        const result = await prisma_1.prisma.productCollection.create({ data: { productId, collectionId: id } });
+        return (0, response_1.sendSuccess)(res, result, 'Product added', 201);
+    }
+    async removeProduct(req, res) {
+        const { id, productId } = req.params;
+        await prisma_1.prisma.productCollection.delete({
+            where: { productId_collectionId: { productId, collectionId: id } },
+        });
+        return (0, response_1.sendSuccess)(res, null, 'Product removed');
+    }
 }
 exports.CollectionController = CollectionController;
 exports.collectionController = new CollectionController();

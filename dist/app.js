@@ -37,6 +37,7 @@ const analytics_routes_1 = __importDefault(require("./modules/admin/routes/analy
 const settings_routes_1 = __importDefault(require("./modules/settings/routes/settings.routes"));
 const seo_routes_1 = __importDefault(require("./modules/seo/routes/seo.routes"));
 const media_routes_1 = __importDefault(require("./modules/media/routes/media.routes"));
+const store_routes_1 = __importDefault(require("./modules/stores/routes/store.routes"));
 const app = (0, express_1.default)();
 // Trust proxy (for deployment behind Nginx)
 app.set('trust proxy', 1);
@@ -44,9 +45,24 @@ app.set('trust proxy', 1);
 app.use((0, helmet_1.default)({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
-// CORS
+// CORS — always include local dev origins alongside configured production URLs
+const ALLOWED_ORIGINS = [
+    env_1.config.frontendUrl,
+    env_1.config.adminUrl,
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:3001',
+];
 app.use((0, cors_1.default)({
-    origin: [env_1.config.frontendUrl, env_1.config.adminUrl],
+    origin: (origin, callback) => {
+        // Allow server-to-server / curl / Postman (no Origin header)
+        if (!origin)
+            return callback(null, true);
+        if (ALLOWED_ORIGINS.includes(origin))
+            return callback(null, true);
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-session-id'],
@@ -115,6 +131,7 @@ app.use(`${v1}/analytics`, analytics_routes_1.default);
 app.use(`${v1}/settings`, settings_routes_1.default);
 app.use(`${v1}/seo`, seo_routes_1.default);
 app.use(`${v1}/media`, media_routes_1.default);
+app.use(`${v1}/stores`, store_routes_1.default);
 // 404 & error handler
 app.use(error_middleware_1.notFound);
 app.use(error_middleware_1.errorHandler);

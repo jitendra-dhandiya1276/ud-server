@@ -105,6 +105,8 @@ async function initDatabase() {
     if (adminCount === 0) {
         const adminEmail = process.env.ADMIN_EMAIL || 'admin@uniquedressup.com';
         const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@123';
+        // NOTE: if the server previously started with a different ADMIN_EMAIL env var,
+        // the admin may already exist with that email. Run scripts/checkAdmin.ts to fix.
         const hashed = await bcryptjs_1.default.hash(adminPassword, 12);
         await prisma_1.prisma.user.create({
             data: {

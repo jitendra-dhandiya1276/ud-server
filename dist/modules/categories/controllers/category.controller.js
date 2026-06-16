@@ -41,7 +41,10 @@ class CategoryController {
         const [data, total] = await Promise.all([
             prisma_1.prisma.category.findMany({
                 where,
-                include: { _count: { select: { products: true } } },
+                include: {
+                    parent: { select: { id: true, name: true } },
+                    _count: { select: { products: true } },
+                },
                 orderBy: { sortOrder: 'asc' },
                 skip,
                 take: l,
@@ -49,6 +52,25 @@ class CategoryController {
             prisma_1.prisma.category.count({ where }),
         ]);
         return (0, response_1.sendPaginated)(res, data, total, p, l, 'Categories fetched');
+    }
+    // Lightweight hierarchical nav menu for the storefront
+    async getNavMenu(req, res) {
+        const categories = await prisma_1.prisma.category.findMany({
+            where: { isActive: true, showInNav: true, parentId: null, deletedAt: null },
+            orderBy: { sortOrder: 'asc' },
+            select: {
+                id: true,
+                name: true,
+                slug: true,
+                image: true,
+                children: {
+                    where: { isActive: true },
+                    orderBy: { sortOrder: 'asc' },
+                    select: { id: true, name: true, slug: true },
+                },
+            },
+        });
+        return (0, response_1.sendSuccess)(res, categories, 'Nav menu fetched');
     }
     async getBySlug(req, res) {
         const { slug } = req.params;
@@ -64,6 +86,32 @@ class CategoryController {
             return (0, response_1.sendError)(res, 'Category not found', 404);
         return (0, response_1.sendSuccess)(res, category, 'Category fetched');
     }
+    // Returns all top-level (parent) categories for dropdowns
+    async getParents(req, res) {
+        const categories = await prisma_1.prisma.category.findMany({
+            where: { parentId: null, isActive: true, deletedAt: null },
+            orderBy: { sortOrder: 'asc' },
+            select: { id: true, name: true, slug: true },
+        });
+        return (0, response_1.sendSuccess)(res, categories, 'Parent categories');
+    }
+    // Home page categories — only showOnHome=true, optional gender filter
+    async getHomeCategories(req, res) {
+        const { gender } = req.query;
+        const where = { isActive: true, showOnHome: true, deletedAt: null };
+        if (gender && gender !== 'ALL') {
+            where.OR = [{ gender }, { gender: null }];
+        }
+        const categories = await prisma_1.prisma.category.findMany({
+            where,
+            orderBy: { sortOrder: 'asc' },
+            select: {
+                id: true, name: true, slug: true, image: true, gender: true,
+                _count: { select: { products: true } },
+            },
+        });
+        return (0, response_1.sendSuccess)(res, categories, 'Home categories fetched');
+    }
     mapBody(body, file) {
         const data = { ...body };
         if (file)
@@ -76,8 +124,17 @@ class CategoryController {
             data.isActive = data.isActive === 'true' || data.isActive === true;
         if (data.isFeatured !== undefined)
             data.isFeatured = data.isFeatured === 'true' || data.isFeatured === true;
+        if (data.showInNav !== undefined)
+            data.showInNav = data.showInNav === 'true' || data.showInNav === true;
+        if (data.showOnHome !== undefined)
+            data.showOnHome = data.showOnHome === 'true' || data.showOnHome === true;
         if (data.sortOrder !== undefined)
             data.sortOrder = parseInt(data.sortOrder, 10) || 0;
+        if (data.gender !== undefined)
+            data.gender = data.gender || null;
+        // parentId: empty string → null
+        if (data.parentId !== undefined)
+            data.parentId = data.parentId || null;
         return data;
     }
     async create(req, res) {

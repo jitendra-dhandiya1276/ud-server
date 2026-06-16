@@ -4,9 +4,85 @@ exports.productController = exports.ProductController = void 0;
 const product_service_1 = require("../services/product.service");
 const response_1 = require("../../../utils/response");
 const upload_1 = require("../../../utils/upload");
+const parseArray = (val) => {
+    if (!val)
+        return undefined;
+    if (Array.isArray(val))
+        return val;
+    try {
+        const p = JSON.parse(val);
+        return Array.isArray(p) ? p : undefined;
+    }
+    catch { }
+    if (typeof val === 'string')
+        return val.split(',').map(s => s.trim()).filter(Boolean);
+    return undefined;
+};
+const parseBool = (val) => {
+    if (val === undefined || val === null || val === '')
+        return undefined;
+    if (typeof val === 'boolean')
+        return val;
+    return val === 'true' || val === '1';
+};
+const parseNum = (val) => {
+    if (val === undefined || val === null || val === '')
+        return undefined;
+    const n = Number(val);
+    return isNaN(n) ? undefined : n;
+};
+const sanitizeProductBody = (body) => {
+    const b = { ...body };
+    // Booleans
+    for (const k of ['isFeatured', 'isTrending', 'isNewArrival', 'isBestSeller', 'isActive', 'trackInventory']) {
+        if (k in b)
+            b[k] = parseBool(b[k]);
+    }
+    // Numbers
+    for (const k of ['basePrice', 'salePrice', 'stockQuantity', 'sortOrder', 'taxPercent', 'costPrice', 'weight', 'lowStockAlert', 'standardShippingCharge', 'codShippingCharge', 'expressShippingCharge']) {
+        if (k in b)
+            b[k] = parseNum(b[k]);
+    }
+    // Arrays
+    b.tags = parseArray(b.tags);
+    b.collectionIds = parseArray(b.collectionIds);
+    // Field name mapping: frontend → Prisma schema
+    if (b.material !== undefined) {
+        b.fabric = b.fabric || b.material;
+        delete b.material;
+    }
+    if (b.metaDescription !== undefined) {
+        b.metaDesc = b.metaDesc || b.metaDescription;
+        delete b.metaDescription;
+    }
+    // Remove fields not in Prisma schema
+    delete b.fit;
+    delete b.style;
+    // Normalize gender value
+    if (b.gender)
+        b.gender = String(b.gender).toUpperCase();
+    // Parse variants JSON string → flat variantsData array
+    if (b.variants && !b.variantsData) {
+        try {
+            const parsed = typeof b.variants === 'string' ? JSON.parse(b.variants) : b.variants;
+            if (Array.isArray(parsed)) {
+                b.variantsData = parsed.flatMap((v) => (v.sizes || []).map((s) => ({
+                    color: v.color || undefined,
+                    colorHex: v.colorHex || undefined,
+                    size: s.size || undefined,
+                    stockQuantity: s.stock ? Number(s.stock) : 0,
+                    price: s.price ? Number(s.price) : undefined,
+                })));
+            }
+        }
+        catch { }
+        delete b.variants;
+    }
+    return b;
+};
 class ProductController {
     async getProducts(req, res) {
-        const { page, limit, search, categoryId, categorySlug, collectionSlug, minPrice, maxPrice, sizes, colors, brands, isFeatured, isTrending, isNewArrival, isBestSeller, inStock, rating, sortBy, } = req.query;
+        const { page, limit, search, categoryId, categorySlug, collectionSlug, minPrice, maxPrice, sizes, colors, brands, isFeatured, isTrending, isNewArrival, isBestSeller, inStock, rating, sortBy, gender, } = req.query;
         const parseBool = (v) => v === 'true' ? true : v === 'false' ? false : undefined;
         const result = await product_service_1.productService.getProducts({
             page: Number(page), limit: Number(limit), search, categoryId, categorySlug, collectionSlug,
@@ -22,6 +98,7 @@ class ProductController {
             inStock: inStock === 'true' ? true : undefined,
             rating: rating ? Number(rating) : undefined,
             sortBy: sortBy,
+            gender: gender || undefined,
         });
         return (0, response_1.sendPaginated)(res, result.products, result.total, result.page, result.limit);
     }
@@ -38,7 +115,8 @@ class ProductController {
             isPrimary: index === 0,
             sortOrder: index,
         }));
-        const product = await product_service_1.productService.createProduct({ ...req.body, images });
+        const body = sanitizeProductBody({ ...req.body, images });
+        const product = await product_service_1.productService.createProduct(body);
         return (0, response_1.sendSuccess)(res, product, 'Product created', 201);
     }
     async getProductById(req, res) {
@@ -58,7 +136,8 @@ class ProductController {
         const removeImageIds = req.body.removeImageIds
             ? (typeof req.body.removeImageIds === 'string' ? JSON.parse(req.body.removeImageIds) : req.body.removeImageIds)
             : [];
-        const product = await product_service_1.productService.updateProduct(id, { ...req.body, newImages, removeImageIds });
+        const body = sanitizeProductBody({ ...req.body, newImages, removeImageIds });
+        const product = await product_service_1.productService.updateProduct(id, body);
         return (0, response_1.sendSuccess)(res, product, 'Product updated');
     }
     async deleteProduct(req, res) {
@@ -67,19 +146,23 @@ class ProductController {
         return (0, response_1.sendSuccess)(res, null, 'Product deleted');
     }
     async getFeaturedProducts(req, res) {
-        const products = await product_service_1.productService.getFeaturedProducts(Number(req.query.limit) || 8);
+        const { gender } = req.query;
+        const products = await product_service_1.productService.getFeaturedProducts(Number(req.query.limit) || 8, gender);
         return (0, response_1.sendSuccess)(res, products, 'Featured products');
     }
     async getTrendingProducts(req, res) {
-        const products = await product_service_1.productService.getTrendingProducts(Number(req.query.limit) || 8);
+        const { gender } = req.query;
+        const products = await product_service_1.productService.getTrendingProducts(Number(req.query.limit) || 8, gender);
         return (0, response_1.sendSuccess)(res, products, 'Trending products');
     }
     async getNewArrivals(req, res) {
-        const products = await product_service_1.productService.getNewArrivals(Number(req.query.limit) || 8);
+        const { gender } = req.query;
+        const products = await product_service_1.productService.getNewArrivals(Number(req.query.limit) || 8, gender);
         return (0, response_1.sendSuccess)(res, products, 'New arrivals');
     }
     async getBestSellers(req, res) {
-        const products = await product_service_1.productService.getBestSellers(Number(req.query.limit) || 8);
+        const { gender } = req.query;
+        const products = await product_service_1.productService.getBestSellers(Number(req.query.limit) || 8, gender);
         return (0, response_1.sendSuccess)(res, products, 'Best sellers');
     }
     async search(req, res) {
