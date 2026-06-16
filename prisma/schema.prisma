@@ -194,7 +194,10 @@ model Product {
   fabric          String?
   careInstructions String? @db.Text
   sizeChart       String?  @db.Text
-  weight          Decimal? @db.Decimal(10, 3)
+  weight                 Decimal? @db.Decimal(10, 3)
+  standardShippingCharge Decimal? @db.Decimal(10, 2)
+  codShippingCharge      Decimal? @db.Decimal(10, 2)
+  expressShippingCharge  Decimal? @db.Decimal(10, 2)
   metaTitle       String?
   metaDesc        String?  @db.Text
   metaKeywords    String?

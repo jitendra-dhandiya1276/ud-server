@@ -30,7 +30,7 @@ const sanitizeProductBody = (body: any) => {
     if (k in b) b[k] = parseBool(b[k]);
   }
   // Numbers
-  for (const k of ['basePrice','salePrice','stockQuantity','sortOrder','taxPercent','costPrice','weight','lowStockAlert']) {
+  for (const k of ['basePrice','salePrice','stockQuantity','sortOrder','taxPercent','costPrice','weight','lowStockAlert','standardShippingCharge','codShippingCharge','expressShippingCharge']) {
     if (k in b) b[k] = parseNum(b[k]);
   }
   // Arrays

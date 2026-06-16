@@ -25,7 +25,12 @@ export class OrderService {
       const productIds = [...new Set(data.items.map(i => i.productId))];
       const products = await tx.product.findMany({
         where: { id: { in: productIds }, isActive: true, deletedAt: null },
-        select: { id: true, name: true, stockQuantity: true },
+        select: {
+          id: true, name: true, stockQuantity: true,
+          standardShippingCharge: true,
+          codShippingCharge: true,
+          expressShippingCharge: true,
+        },
       });
       const productMap = new Map(products.map(p => [p.id, p]));
 
@@ -40,7 +45,27 @@ export class OrderService {
       // 2. Compute totals
       const subtotal = data.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
       const method = (data.shippingMethod || 'STANDARD').toUpperCase();
-      const shippingCharge = OrderService.SHIPPING_RATES[method] ?? 79;
+
+      // Use per-product charge if set (take the max across all cart items),
+      // otherwise fall back to the global rate for the chosen method.
+      const fieldMap: Record<string, 'standardShippingCharge' | 'codShippingCharge' | 'expressShippingCharge'> = {
+        STANDARD: 'standardShippingCharge',
+        COD:      'codShippingCharge',
+        EXPRESS:  'expressShippingCharge',
+      };
+      const chargeField = fieldMap[method];
+      let shippingCharge = OrderService.SHIPPING_RATES[method] ?? 79;
+      if (chargeField) {
+        const productCharges = data.items
+          .map(item => {
+            const p = productMap.get(item.productId);
+            return p ? Number((p as any)[chargeField] ?? 0) : 0;
+          })
+          .filter(c => c > 0);
+        if (productCharges.length > 0) {
+          shippingCharge = Math.max(...productCharges);
+        }
+      }
       // Prices are GST-inclusive; taxAmount is stored for display/accounting only
       const taxAmount = subtotal * 0.18;
       let couponDiscount = 0;
