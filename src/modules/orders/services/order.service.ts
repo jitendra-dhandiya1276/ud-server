@@ -4,9 +4,16 @@ import { generateOrderNumber } from '../../../utils/slugify';
 import { paginationParams } from '../../../utils/slugify';
 
 export class OrderService {
+  private static readonly SHIPPING_RATES: Record<string, number> = {
+    STANDARD: 79,
+    COD:      149,
+    EXPRESS:  249,
+  };
+
   async createOrder(userId: string, data: {
     addressId: string;
     paymentMethod: string;
+    shippingMethod?: string;
     couponCode?: string;
     notes?: string;
     items: { productId: string; variantId?: string; quantity: number; price: number }[];
@@ -32,7 +39,8 @@ export class OrderService {
 
       // 2. Compute totals
       const subtotal = data.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-      const shippingCharge = subtotal < 999 ? 99 : 0;
+      const method = (data.shippingMethod || 'STANDARD').toUpperCase();
+      const shippingCharge = OrderService.SHIPPING_RATES[method] ?? 79;
       // Prices are GST-inclusive; taxAmount is stored for display/accounting only
       const taxAmount = subtotal * 0.18;
       let couponDiscount = 0;
@@ -78,6 +86,7 @@ export class OrderService {
           status: 'PENDING',
           paymentStatus: 'PENDING',
           paymentMethod: data.paymentMethod as any,
+          shippingMethod: method,
           subtotal,
           discount: couponDiscount,
           shippingCharge,

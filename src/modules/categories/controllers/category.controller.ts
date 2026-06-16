@@ -6,6 +6,7 @@ import { getImageUrl } from '../../../utils/upload';
 import { AppError } from '../../../middlewares/error.middleware';
 
 export class CategoryController {
+
   async getAll(req: Request, res: Response) {
     const { parentOnly, withProducts, page, limit, search } = req.query as Record<string, string>;
 
@@ -41,7 +42,10 @@ export class CategoryController {
     const [data, total] = await Promise.all([
       prisma.category.findMany({
         where,
-        include: { _count: { select: { products: true } } },
+        include: {
+          parent: { select: { id: true, name: true } },
+          _count: { select: { products: true } },
+        },
         orderBy: { sortOrder: 'asc' },
         skip,
         take: l,
@@ -52,27 +56,80 @@ export class CategoryController {
     return sendPaginated(res, data, total, p, l, 'Categories fetched');
   }
 
+  // Lightweight hierarchical nav menu for the storefront
+  async getNavMenu(req: Request, res: Response) {
+    const categories = await prisma.category.findMany({
+      where: { isActive: true, showInNav: true, parentId: null, deletedAt: null },
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        id:    true,
+        name:  true,
+        slug:  true,
+        image: true,
+        children: {
+          where: { isActive: true },
+          orderBy: { sortOrder: 'asc' },
+          select: { id: true, name: true, slug: true },
+        },
+      },
+    });
+    return sendSuccess(res, categories, 'Nav menu fetched');
+  }
+
   async getBySlug(req: Request, res: Response) {
     const { slug } = req.params;
     const category = await prisma.category.findFirst({
       where: { slug, isActive: true },
       include: {
         children: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } },
-        parent: { select: { id: true, name: true, slug: true } },
-        _count: { select: { products: true } },
+        parent:   { select: { id: true, name: true, slug: true } },
+        _count:   { select: { products: true } },
       },
     });
     if (!category) return sendError(res, 'Category not found', 404);
     return sendSuccess(res, category, 'Category fetched');
   }
 
+  // Returns all top-level (parent) categories for dropdowns
+  async getParents(req: Request, res: Response) {
+    const categories = await prisma.category.findMany({
+      where: { parentId: null, isActive: true, deletedAt: null },
+      orderBy: { sortOrder: 'asc' },
+      select: { id: true, name: true, slug: true },
+    });
+    return sendSuccess(res, categories, 'Parent categories');
+  }
+
+  // Home page categories — only showOnHome=true, optional gender filter
+  async getHomeCategories(req: Request, res: Response) {
+    const { gender } = req.query as Record<string, string>;
+    const where: any = { isActive: true, showOnHome: true, deletedAt: null };
+    if (gender && gender !== 'ALL') {
+      where.OR = [{ gender }, { gender: null }];
+    }
+    const categories = await prisma.category.findMany({
+      where,
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        id: true, name: true, slug: true, image: true, gender: true,
+        _count: { select: { products: true } },
+      },
+    });
+    return sendSuccess(res, categories, 'Home categories fetched');
+  }
+
   private mapBody(body: any, file?: Express.Multer.File) {
     const data: any = { ...body };
     if (file) data.image = getImageUrl(file.path);
     if (data.metaDescription !== undefined) { data.metaDesc = data.metaDescription; delete data.metaDescription; }
-    if (data.isActive !== undefined) data.isActive = data.isActive === 'true' || data.isActive === true;
-    if (data.isFeatured !== undefined) data.isFeatured = data.isFeatured === 'true' || data.isFeatured === true;
-    if (data.sortOrder !== undefined) data.sortOrder = parseInt(data.sortOrder, 10) || 0;
+    if (data.isActive    !== undefined) data.isActive    = data.isActive    === 'true' || data.isActive    === true;
+    if (data.isFeatured  !== undefined) data.isFeatured  = data.isFeatured  === 'true' || data.isFeatured  === true;
+    if (data.showInNav   !== undefined) data.showInNav   = data.showInNav   === 'true' || data.showInNav   === true;
+    if (data.showOnHome  !== undefined) data.showOnHome  = data.showOnHome  === 'true' || data.showOnHome  === true;
+    if (data.sortOrder   !== undefined) data.sortOrder   = parseInt(data.sortOrder, 10) || 0;
+    if (data.gender      !== undefined) data.gender      = data.gender || null;
+    // parentId: empty string → null
+    if (data.parentId !== undefined) data.parentId = data.parentId || null;
     return data;
   }
 

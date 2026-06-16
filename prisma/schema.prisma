@@ -112,6 +112,8 @@ model Category {
   isActive    Boolean    @default(true)
   isFeatured  Boolean    @default(false)
   showInNav   Boolean    @default(true)
+  showOnHome  Boolean    @default(false)
+  gender      String?
   metaTitle   String?
   metaDesc    String?    @db.Text
   metaKeywords String?
@@ -442,6 +444,7 @@ model Order {
   status          OrderStatus   @default(PENDING)
   paymentStatus   PaymentStatus @default(PENDING)
   paymentMethod   PaymentMethod @default(COD)
+  shippingMethod  String        @default("STANDARD")
   subtotal        Decimal       @db.Decimal(10, 2)
   discount        Decimal       @db.Decimal(10, 2) @default(0)
   shippingCharge  Decimal       @db.Decimal(10, 2) @default(0)
@@ -515,6 +518,7 @@ enum PaymentStatus {
 enum PaymentMethod {
   COD
   RAZORPAY
+  CASHFREE
   UPI
   CARD
   NET_BANKING
@@ -528,9 +532,11 @@ model Payment {
   id              String        @id @default(uuid())
   orderId         String        @unique
   order           Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  razorpayOrderId String?
+  razorpayOrderId   String?
   razorpayPaymentId String?
   razorpaySignature String?
+  cashfreeOrderId   String?
+  cashfreePaymentId String?
   amount          Decimal       @db.Decimal(10, 2)
   currency        String        @default("INR")
   status          PaymentStatus @default(PENDING)
