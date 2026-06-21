@@ -88,8 +88,11 @@ if (config.isProd) {
   app.use('/api/v1/auth/register', authLimiter);
 }
 
-// Body parsing
-app.use(express.json({ limit: '10mb' }));
+// Body parsing — `verify` saves raw buffer for Cashfree webhook signature verification
+app.use(express.json({
+  limit: '10mb',
+  verify: (req: any, _res, buf) => { req.rawBody = buf; },
+}));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
