@@ -447,7 +447,8 @@ model Order {
   status          OrderStatus   @default(PENDING)
   paymentStatus   PaymentStatus @default(PENDING)
   paymentMethod   PaymentMethod @default(COD)
-  shippingMethod  String        @default("STANDARD")
+  shippingMethod      String        @default("STANDARD")
+  deliveryChargePaid  Boolean       @default(false)
   subtotal        Decimal       @db.Decimal(10, 2)
   discount        Decimal       @db.Decimal(10, 2) @default(0)
   shippingCharge  Decimal       @db.Decimal(10, 2) @default(0)
@@ -543,7 +544,8 @@ model Payment {
   amount          Decimal       @db.Decimal(10, 2)
   currency        String        @default("INR")
   status          PaymentStatus @default(PENDING)
-  method          PaymentMethod @default(COD)
+  method               PaymentMethod @default(COD)
+  isDeliveryChargeOnly Boolean       @default(false)
   gatewayResponse Json?
   refundId        String?
   refundAmount    Decimal?      @db.Decimal(10, 2)
@@ -692,6 +694,8 @@ enum HomepageSectionType {
   CUSTOM_HTML
   CUSTOM_BANNER
   STORE_LOCATOR
+  MARQUEE
+  INSTAGRAM_REELS
 }
 
 model Store {
@@ -708,6 +712,21 @@ model Store {
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model InstagramReel {
+  id          String   @id @default(uuid())
+  title       String?
+  caption     String?
+  reelUrl     String
+  videoUrl    String?
+  thumbnail   String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("instagram_reels")
 }
 
 model Testimonial {

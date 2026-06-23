@@ -57,19 +57,21 @@ export class CategoryController {
   }
 
   // Lightweight hierarchical nav menu for the storefront
+  // Returns all nav categories with gender field included (client filters by active gender)
   async getNavMenu(req: Request, res: Response) {
     const categories = await prisma.category.findMany({
       where: { isActive: true, showInNav: true, parentId: null, deletedAt: null },
       orderBy: { sortOrder: 'asc' },
       select: {
-        id:    true,
-        name:  true,
-        slug:  true,
-        image: true,
+        id:     true,
+        name:   true,
+        slug:   true,
+        image:  true,
+        gender: true,
         children: {
-          where: { isActive: true },
+          where: { isActive: true, showInNav: true },
           orderBy: { sortOrder: 'asc' },
-          select: { id: true, name: true, slug: true },
+          select: { id: true, name: true, slug: true, gender: true },
         },
       },
     });

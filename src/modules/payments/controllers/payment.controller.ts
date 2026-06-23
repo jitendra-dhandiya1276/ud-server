@@ -145,6 +145,66 @@ export class PaymentController {
     }, 'Cashfree order created');
   }
 
+  // ── Cashfree: COD delivery-charge deposit ────────────────────────
+  // Creates a Cashfree session for ONLY the shipping charge.
+  // Product amount is still collected as cash on delivery.
+  async createCashfreeCodDeposit(req: Request, res: Response) {
+    const { orderId } = req.body;
+    const order = await prisma.order.findUnique({
+      where:   { id: orderId },
+      include: { user: true },
+    });
+    if (!order) return sendError(res, 'Order not found', 404);
+    if (!req.user || order.userId !== req.user.userId) return sendError(res, 'Forbidden', 403);
+    if (order.paymentMethod !== 'COD') return sendError(res, 'Not a COD order', 400);
+    if (order.deliveryChargePaid) return sendError(res, 'Delivery charge already collected', 400);
+
+    const user           = order.user as any;
+    const phone          = (user.phone || '9999999999').replace(/\D/g, '').slice(-10) || '9999999999';
+    const deliveryCharge = Number(order.shippingCharge);
+    const cfOrderId      = `cod_${order.orderNumber}`;
+
+    const request = {
+      order_id:       cfOrderId,
+      order_amount:   deliveryCharge,
+      order_currency: 'INR',
+      customer_details: {
+        customer_id:    user.id,
+        customer_name:  `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Customer',
+        customer_email: user.email,
+        customer_phone: phone,
+      },
+      order_meta: {
+        notify_url: `${config.baseUrl}/api/v1/payments/cashfree/webhook`,
+      },
+      order_expiry_time: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+      order_note: `Delivery charge deposit — Order ${order.orderNumber}`,
+    };
+
+    const response = await getCashfree().PGCreateOrder(request);
+    const cfData   = response.data as any;
+
+    await prisma.payment.upsert({
+      where:  { orderId },
+      create: {
+        orderId, amount: deliveryCharge, method: 'CASHFREE',
+        cashfreeOrderId: cfData.order_id, isDeliveryChargeOnly: true,
+      },
+      update: {
+        method: 'CASHFREE', cashfreeOrderId: cfData.order_id,
+        amount: deliveryCharge, status: 'PENDING', isDeliveryChargeOnly: true,
+      },
+    });
+
+    return sendSuccess(res, {
+      paymentSessionId: cfData.payment_session_id,
+      cfOrderId:        cfData.order_id,
+      orderId,
+      orderNumber:      order.orderNumber,
+      deliveryCharge,
+    }, 'COD delivery deposit session created');
+  }
+
   // ── Cashfree: get payment status (polled after modal closes) ─────
   async getCashfreePaymentStatus(req: Request, res: Response) {
     const { orderId } = req.params;
@@ -173,10 +233,20 @@ export class PaymentController {
         where: { orderId },
         data:  { status: 'PAID', ...(cfPaymentId && { cashfreePaymentId: cfPaymentId }), gatewayResponse: cfData },
       });
-      await prisma.order.update({
-        where: { id: orderId },
-        data:  { paymentStatus: 'PAID', status: 'CONFIRMED' },
-      });
+
+      if (payment.isDeliveryChargeOnly) {
+        // COD: delivery deposit collected — confirm order, product paid on delivery
+        await prisma.order.update({
+          where: { id: orderId },
+          data:  { deliveryChargePaid: true, status: 'CONFIRMED' },
+        });
+      } else {
+        // Full payment — mark order fully paid
+        await prisma.order.update({
+          where: { id: orderId },
+          data:  { paymentStatus: 'PAID', status: 'CONFIRMED' },
+        });
+      }
     } else if (dbStatus === 'FAILED' && payment.status !== 'FAILED') {
       await prisma.payment.update({
         where: { orderId },
@@ -190,8 +260,9 @@ export class PaymentController {
 
     return sendSuccess(res, {
       cfStatus,
-      paymentStatus: dbStatus,
-      orderNumber:   order.orderNumber,
+      paymentStatus:     dbStatus,
+      orderNumber:       order.orderNumber,
+      deliveryChargePaid: payment.isDeliveryChargeOnly ? (dbStatus === 'PAID') : undefined,
     });
   }
 
@@ -229,7 +300,7 @@ export class PaymentController {
       // ── 3. Terminal-state early exit (idempotency) ────────────────
       const payment = await prisma.payment.findFirst({
         where:  { cashfreeOrderId: cfOrderId },
-        select: { orderId: true, status: true },
+        select: { orderId: true, status: true, isDeliveryChargeOnly: true },
       });
       if (!payment) return res.json({ success: true });
       if (payment.status === 'PAID' || payment.status === 'FAILED') {
@@ -257,10 +328,19 @@ export class PaymentController {
         });
         // Guard order update behind the same winner-takes-all check
         if (updated.count > 0) {
-          await prisma.order.update({
-            where: { id: payment.orderId },
-            data:  { paymentStatus: 'PAID', status: 'CONFIRMED' },
-          });
+          if (payment.isDeliveryChargeOnly) {
+            // COD deposit: delivery charge paid online, product paid on delivery
+            await prisma.order.update({
+              where: { id: payment.orderId },
+              data:  { deliveryChargePaid: true, status: 'CONFIRMED' },
+            });
+          } else {
+            // Full payment
+            await prisma.order.update({
+              where: { id: payment.orderId },
+              data:  { paymentStatus: 'PAID', status: 'CONFIRMED' },
+            });
+          }
         }
 
       } else if (['EXPIRED', 'CANCELLED', 'TERMINATED'].includes(cfStatus)) {

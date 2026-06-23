@@ -36,6 +36,7 @@ import settingsRoutes from './modules/settings/routes/settings.routes';
 import seoRoutes from './modules/seo/routes/seo.routes';
 import mediaRoutes from './modules/media/routes/media.routes';
 import storeRoutes from './modules/stores/routes/store.routes';
+import instagramReelsRoutes from './modules/instagram-reels/routes/instagram-reels.routes';
 
 const app = express();
 
@@ -144,6 +145,7 @@ app.use(`${v1}/settings`, settingsRoutes);
 app.use(`${v1}/seo`, seoRoutes);
 app.use(`${v1}/media`, mediaRoutes);
 app.use(`${v1}/stores`, storeRoutes);
+app.use(`${v1}/instagram-reels`, instagramReelsRoutes);
 
 // 404 & error handler
 app.use(notFound);
