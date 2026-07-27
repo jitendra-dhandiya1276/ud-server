@@ -20,7 +20,11 @@ const INIT_SETTINGS = [
   { key: 'site_tagline',         value: 'Express Your Unique Style',                                                group: 'general',  label: 'Tagline' },
   { key: 'site_email',           value: 'uniquedressup@gmail.com',                                                  group: 'general',  label: 'Support Email' },
   { key: 'site_description',     value: 'Trendy & affordable fashion for every occasion. Explore kurtas, co-ords, dresses, and more.', group: 'general', label: 'Site Description' },
-  { key: 'logo_url',             value: '/logo.jpg',                                                                group: 'general',  label: 'Logo URL' },
+  // Trimmed, transparent wordmark (600x333). The old /logo.jpg was a 4500x4500
+  // square with ~60% white padding, which forced a 1:1 render everywhere.
+  { key: 'logo_url',             value: '/logo-mark.png',                                                           group: 'general',  label: 'Logo URL' },
+  // Light colourway for dark surfaces (footer).
+  { key: 'logo_url_light',       value: '/logo-mark-light.png',                                                     group: 'general',  label: 'Logo URL (light, for dark backgrounds)' },
   { key: 'currency',             value: 'INR',                                                                      group: 'general',  label: 'Currency Code' },
   { key: 'currency_symbol',      value: '₹',                                                                        group: 'general',  label: 'Currency Symbol' },
   { key: 'site_phone',           value: '+91 98765 43210',                                                          group: 'contact',  label: 'Phone' },

@@ -30,8 +30,38 @@ export const config = {
 
   upload: {
     path: process.env.UPLOAD_PATH || './uploads',
-    maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '5242880', 10),
-    allowedTypes: (process.env.ALLOWED_IMAGE_TYPES || 'image/jpeg,image/jpg,image/png,image/webp').split(','),
+    // Raised from 5 MB to 25 MB so HD/studio originals can be stored untouched.
+    // This is safe only because nothing serves the original to the storefront —
+    // see src/utils/imagePipeline.ts. Do not raise the ceiling without keeping
+    // image.maxInputPixels in step.
+    maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '26214400', 10),
+    allowedTypes: (process.env.ALLOWED_IMAGE_TYPES || 'image/jpeg,image/jpg,image/png,image/webp,image/avif,image/tiff').split(','),
+  },
+
+  image: {
+    // Disk cache for generated derivatives. Kept inside the uploads volume so a
+    // single mount survives redeploys, but dot-prefixed so it is never served
+    // by the /uploads static handler.
+    cachePath: process.env.IMAGE_CACHE_PATH || `${process.env.UPLOAD_PATH || './uploads'}/.derivatives`,
+    // ~100 megapixels. Bounds decode memory for a hostile or accidental
+    // "decompression bomb" now that we accept 25 MB uploads.
+    maxInputPixels: parseInt(process.env.IMAGE_MAX_INPUT_PIXELS || '100000000', 10),
+    // libvips threads PER worker. PM2 runs `instances: 'max'`, so leaving this
+    // at the default (one per core, per worker) oversubscribes the CPU badly.
+    sharpConcurrency: parseInt(process.env.SHARP_CONCURRENCY || '2', 10),
+    // Formats generated eagerly on upload. Both are worth pre-warming: AVIF for
+    // modern browsers, WebP as the universal fallback.
+    prewarmFormats: (process.env.IMAGE_PREWARM_FORMATS || 'avif,webp').split(',') as ('avif' | 'webp')[],
+    // Set false to disable on-upload pre-warming (e.g. on a memory-tight box).
+    prewarmOnUpload: process.env.IMAGE_PREWARM_ON_UPLOAD !== 'false',
+    // How many background encodes may run at once. Keep at 1 on a 1-2 core VPS:
+    // a 1920w AVIF takes seconds, and background work must never compete with
+    // request handling. Raise cautiously on a dedicated box.
+    backgroundConcurrency: parseInt(process.env.IMAGE_BACKGROUND_CONCURRENCY || '1', 10),
+    // Backlog ceiling; the oldest queued job is dropped beyond this. Dropped
+    // work is regenerated lazily on first request, so this is a throttle rather
+    // than data loss.
+    maxBackgroundQueue: parseInt(process.env.IMAGE_MAX_BACKGROUND_QUEUE || '500', 10),
   },
 
   razorpay: {

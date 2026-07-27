@@ -37,6 +37,7 @@ import seoRoutes from './modules/seo/routes/seo.routes';
 import mediaRoutes from './modules/media/routes/media.routes';
 import storeRoutes from './modules/stores/routes/store.routes';
 import instagramReelsRoutes from './modules/instagram-reels/routes/instagram-reels.routes';
+import imageRoutes from './modules/images/routes/image.routes';
 
 const app = express();
 
@@ -110,12 +111,26 @@ if (config.isDev) {
   }));
 }
 
-// Static file serving for uploads
+// ── Image delivery ───────────────────────────────────────────────────────────
+// Resized/re-encoded derivatives generated on demand and cached to disk.
+// This is what the storefront renders; /uploads below keeps serving the
+// untouched originals for admin previews and direct links.
+// Mounted before the /uploads static handler so it is never shadowed by it.
+app.use('/img', imageRoutes);
+
+// Static file serving for uploads (ORIGINALS, at full quality).
+// Filenames are UUIDs and therefore content-addressed in practice: a given
+// name never changes meaning, so these can be cached indefinitely. The old
+// 1-day max-age forced every repeat visitor into a revalidation round-trip.
 app.use('/uploads', express.static(path.resolve(config.upload.path), {
-  maxAge: '1d',
+  maxAge: '1y',
   etag: true,
+  immutable: true,
+  // The derivative cache lives under the uploads volume; never expose it.
+  dotfiles: 'deny',
   setHeaders: (res) => {
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Timing-Allow-Origin', '*');
   },
 }));
 

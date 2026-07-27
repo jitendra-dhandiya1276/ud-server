@@ -12,7 +12,9 @@
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
     "lint": "eslint src --ext .ts",
-    "seed:gender": "ts-node --transpile-only src/scripts/seedGenderDemo.ts"
+    "seed:gender": "ts-node --transpile-only src/scripts/seedGenderDemo.ts",
+    "images:warm": "ts-node --transpile-only src/scripts/warmImageCache.ts",
+    "logo:update": "ts-node --transpile-only src/scripts/updateLogoSettings.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
