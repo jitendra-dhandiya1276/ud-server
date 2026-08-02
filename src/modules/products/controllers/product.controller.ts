@@ -65,6 +65,34 @@ const sanitizeProductBody = (body: any) => {
   return b;
 };
 
+/**
+ * Guarantee a sensible product-level stock figure on create.
+ *
+ * Order validation checks `Product.stockQuantity` — NOT the sum of variant
+ * stock (see OrderService.createOrder). A create request that omits the field
+ * therefore lands on the Prisma default of 0 and the product is unbuyable
+ * ("Insufficient stock") no matter how much variant stock was entered
+ * alongside it. That is exactly what happened to every product added through
+ * the admin form, which had no stock input at all.
+ *
+ * When the caller does not state a figure, fall back to the total across the
+ * variants it did supply. An explicit 0 is still honoured — that is a
+ * deliberate "out of stock".
+ */
+const withDerivedStock = (b: any) => {
+  const provided = b.stockQuantity;
+  const isMissing =
+    provided === undefined || provided === null || provided === '' || Number.isNaN(provided);
+
+  if (!isMissing) return b;
+
+  const total = Array.isArray(b.variantsData)
+    ? b.variantsData.reduce((sum: number, v: any) => sum + (Number(v.stockQuantity) || 0), 0)
+    : 0;
+
+  return { ...b, stockQuantity: total };
+};
+
 export class ProductController {
   async getProducts(req: Request, res: Response) {
     const {
@@ -111,7 +139,7 @@ export class ProductController {
       sortOrder: index,
     }));
 
-    const body = sanitizeProductBody({ ...req.body, images });
+    const body = withDerivedStock(sanitizeProductBody({ ...req.body, images }));
     const product = await productService.createProduct(body);
     return sendSuccess(res, product, 'Product created', 201);
   }
