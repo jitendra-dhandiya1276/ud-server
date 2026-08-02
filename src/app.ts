@@ -50,14 +50,41 @@ app.use(helmet({
 }));
 
 // CORS — always include local dev origins alongside configured production URLs
+//
+// `www.` is derived automatically from every configured origin. Without it,
+// visitors who land on the www host fail every credentialed request: the logs
+// showed a steady stream of `OPTIONS /api/v1/cart -> 500` from
+// www.theuniquedressup.com, i.e. real customers unable to use their cart
+// purely because the apex domain was the only origin registered.
+const withWwwVariant = (url: string): string[] => {
+  if (!url) return [];
+  try {
+    const parsed = new URL(url);
+    const host = parsed.host;
+    const sibling = host.startsWith('www.')
+      ? host.slice(4)
+      : `www.${host}`;
+    return [`${parsed.protocol}//${host}`, `${parsed.protocol}//${sibling}`];
+  } catch {
+    return [url]; // not a parseable URL — keep the literal value
+  }
+};
+
 const ALLOWED_ORIGINS = [
-  config.frontendUrl,
-  config.adminUrl,
+  ...withWwwVariant(config.frontendUrl),
+  ...withWwwVariant(config.adminUrl),
+  // Comma-separated escape hatch for extra origins (staging, preview builds)
+  // without needing a code change.
+  ...(process.env.CORS_EXTRA_ORIGINS || '')
+    .split(',')
+    .map(o => o.trim())
+    .filter(Boolean),
   'http://localhost:3000',
   'http://localhost:3001',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:3001',
 ];
+
 app.use(cors({
   origin: (origin, callback) => {
     // Allow server-to-server / curl / Postman (no Origin header)
