@@ -1,10 +1,13 @@
 import { Router } from 'express';
 import { productController } from '../controllers/product.controller';
 import { authenticate, isAdmin, isAdminOrSubAdmin } from '../../../middlewares/auth.middleware';
-import { createUploader } from '../../../utils/upload';
+import { createUploader, validateUploadResolution } from '../../../utils/upload';
 
 const router = Router();
 const upload = createUploader('products');
+// Rejects sources too small for the grid/detail views, which the pipeline
+// cannot compensate for because it never upscales.
+const checkResolution = validateUploadResolution('products');
 
 // Public routes
 router.get('/', productController.getProducts.bind(productController));
@@ -17,8 +20,8 @@ router.get('/:slug', productController.getProductBySlug.bind(productController))
 
 // Admin routes
 router.get('/admin/:id', authenticate, isAdminOrSubAdmin, productController.getProductById.bind(productController));
-router.post('/', authenticate, isAdminOrSubAdmin, upload.array('images', 10), productController.createProduct.bind(productController));
-router.put('/:id', authenticate, isAdminOrSubAdmin, upload.array('images', 10), productController.updateProduct.bind(productController));
+router.post('/', authenticate, isAdminOrSubAdmin, upload.array('images', 10), checkResolution, productController.createProduct.bind(productController));
+router.put('/:id', authenticate, isAdminOrSubAdmin, upload.array('images', 10), checkResolution, productController.updateProduct.bind(productController));
 router.delete('/:id', authenticate, isAdmin, productController.deleteProduct.bind(productController));
 
 // Variant routes

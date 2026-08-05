@@ -14,7 +14,8 @@
     "lint": "eslint src --ext .ts",
     "seed:gender": "ts-node --transpile-only src/scripts/seedGenderDemo.ts",
     "images:warm": "ts-node --transpile-only src/scripts/warmImageCache.ts",
-    "logo:update": "ts-node --transpile-only src/scripts/updateLogoSettings.ts"
+    "logo:update": "ts-node --transpile-only src/scripts/updateLogoSettings.ts",
+    "images:audit": "ts-node --transpile-only src/scripts/auditImageQuality.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

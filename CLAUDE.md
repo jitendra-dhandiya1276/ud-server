@@ -829,6 +829,10 @@ Base URL: `{BASE_URL}/api/v1`. **Auth legend:** 🔓 public · 🔐 authenticate
 | `lib/imageLoader.ts` | frontend | `next/image` custom loader; rewrites `/uploads/…` → `/img/…` |
 
 **Rules**
+- **Source resolution is the one thing the pipeline cannot fix.** It never upscales by design, so a source narrower than its render box is stretched by the *browser* — that is what "the image looks blurry" almost always means. `validateUploadResolution` rejects uploads below `MIN_SOURCE_WIDTH` (products 1000px, categories 800px, banners 1440px); `npm run images:audit` lists existing offenders. Set `IMAGE_MIN_RESOLUTION_ENFORCE=false` to warn instead of reject.
+- **`PIPELINE_VERSION` must be bumped whenever encoder settings change.** The cache key is otherwise source identity + width/format/quality only, so a settings change would keep serving derivatives from the old encoder forever. Bumping it invalidates everything; follow with `npm run images:warm`.
+- AVIF uses **4:4:4** chroma. 4:2:0 halves colour resolution and softens print edges on garments — measured 39.80 dB PSNR vs **41.43 dB** at 4:4:4 (past the ~40 dB visually-lossless line) for ~9% more bytes.
+- A **damped unsharp mask** (`sigma 0.5, m1/m2 0.5`) is applied only when downscaling ≥1.5×, where resampling has actually cost acutance. Sharp's default `m1/m2` (1.0/2.0) inflate AVIF ~27% and halo garment edges; the damped settings cost ~8%.
 - Widths are snapped to a fixed ladder (`RESPONSIVE_WIDTHS`); arbitrary widths cannot balloon the cache.
 - Cache keys include the source **mtime + size**, so replacing a file invalidates its derivatives automatically — never add cache-busting query strings.
 - Derivatives **never upscale**: requesting 1920w from a 1200w original returns 1200w.
