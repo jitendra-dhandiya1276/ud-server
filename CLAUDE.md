@@ -181,7 +181,7 @@ frontend/
 | Language | TypeScript | 5.4 (BE) / 5.x (FE) |
 | Runtime | Node.js | 20 (alpine in Docker) |
 | Backend framework | Express | 4.18 |
-| Frontend framework | Next.js (App Router) | **15.0.3** |
+| Frontend framework | Next.js (App Router) | **15.5.19** (production `ud-c`) |
 | UI runtime | React | 19 |
 | ORM | Prisma | 5.22 |
 | Database | MySQL | 8.x (provider `mysql`) |
@@ -1121,7 +1121,7 @@ The Dockerfile copies `.next/standalone`, but `next.config.ts` only emits standa
 
 ### 🟡 Medium
 
-**9. Next.js 15.0.3 carries a known vulnerability.** A local commit upgrading to 15.5.19 for **CVE-2025-66478** was discarded when the repo was reset to the new remote on 2026-07-27. Upstream is still on 15.0.3. The patch survives only on the local `backup-pre-reset-2026-07-27` branch.
+**~~9. Next.js 15.0.3 carries a known vulnerability.~~ NOT AN ISSUE — corrected 2026-08-05.** This was recorded from the stale `ud-client` repo, which is **not** what production runs. The deployed `ud-c` app is on **Next 15.5.19** (verified from `node_modules/next/package.json` on the server), so the **CVE-2025-66478** patch is applied. Only the retired `ud-client` snapshot still pins 15.0.3.
 
 **10. Cashfree is half-wired.** The backend implements order creation, COD deposits, status polling, and a hardened webhook. The frontend has **zero** Cashfree code — `paymentApi` exposes only Razorpay, and checkout offers only COD and Razorpay. Additionally, `CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` are **absent from the current backend `.env`**, so `getCashfree()` would throw "Cashfree keys not configured".
 
