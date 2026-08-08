@@ -42,6 +42,17 @@ const csvPath = argv.find(a => !a.startsWith('--'));
 const has = (f: string) => argv.includes(f);
 const val = (f: string) => argv.find(a => a.startsWith(`${f}=`))?.split('=')[1];
 
+/**
+ * Live-store source. A Shopify storefront exposes /products.json publicly, so
+ * the catalogue can be pulled without admin credentials or a manual export.
+ *
+ * Trade-off vs the CSV export: the public feed carries no inventory counts
+ * (only a boolean `available`) and omits unpublished products. Use the admin
+ * CSV when exact stock matters.
+ */
+const STORE = val('--store');
+const STOCK_FOR_AVAILABLE = parseInt(val('--stock-available') || '10', 10);
+
 const DRY_RUN = has('--dry-run');
 const SKIP_IMAGES = has('--skip-images');
 const UPDATE_EXISTING = has('--update-existing');
@@ -73,7 +84,7 @@ interface ShopifyProduct {
   status: string;
   seoTitle: string;
   seoDescription: string;
-  images: { src: string; position: number; alt: string }[];
+  images: { src: string; position: number; alt: string; width?: number }[];
   variants: ShopifyVariant[];
 }
 
@@ -172,6 +183,94 @@ const groupRows = (rows: Record<string, string>[]): ShopifyProduct[] => {
   return [...byHandle.values()];
 };
 
+// ── Live store source (public /products.json) ────────────────────────────────
+
+/** Fetch every published product from a storefront, following pagination. */
+const fetchStoreProducts = async (store: string): Promise<ShopifyProduct[]> => {
+  const host = store.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const out: ShopifyProduct[] = [];
+
+  for (let page = 1; page <= 50; page++) {
+    const res = await fetch(`https://${host}/products.json?limit=250&page=${page}`);
+    if (!res.ok) throw new Error(`${host} returned ${res.status} — is the store public?`);
+    const body = (await res.json()) as { products?: any[] };
+    const batch = body.products ?? [];
+    if (batch.length === 0) break;
+
+    for (const p of batch) {
+      const variants: ShopifyVariant[] = (p.variants ?? []).map((v: any) => {
+        const variant: ShopifyVariant = {
+          sku: v.sku || '',
+          price: v.price !== undefined && v.price !== null ? Number(v.price) : null,
+          compareAt: v.compare_at_price ? Number(v.compare_at_price) : null,
+          // The public feed has no inventory count, only availability, so an
+          // in-stock variant gets a uniform placeholder the admin can correct.
+          stock: v.available ? STOCK_FOR_AVAILABLE : 0,
+          grams: Number(v.grams) || 0,
+          imageSrc: v.featured_image?.src,
+        };
+        // Options are positional here too, named by the product's `options`.
+        (p.options ?? []).forEach((opt: any, i: number) => {
+          applyOption(variant, opt.name, v[`option${i + 1}`]);
+        });
+        return variant;
+      });
+
+      out.push({
+        handle: p.handle,
+        title: p.title || '',
+        bodyHtml: p.body_html || '',
+        vendor: p.vendor || '',
+        type: p.product_type || '',
+        tags: (p.tags ?? []).map((t: any) => String(t).trim()).filter(Boolean),
+        published: true, // /products.json only lists published products
+        status: 'active',
+        seoTitle: '',
+        seoDescription: '',
+        images: (p.images ?? []).map((im: any, i: number) => ({
+          src: im.src,
+          position: im.position ?? i + 1,
+          alt: im.alt || '',
+          // Known up-front from the feed, so low-resolution sources can be
+          // reported without downloading them first.
+          width: im.width as number | undefined,
+        })),
+        variants,
+      });
+    }
+
+    if (batch.length < 250) break;
+  }
+
+  return out;
+};
+
+/**
+ * Derive a category from tags, because this export has product_type empty on
+ * every product. Ordered most-specific first: a "tshirt" also tagged "top"
+ * should land in T-Shirts, not Tops.
+ */
+const TAG_CATEGORY: [RegExp, string][] = [
+  [/^babe ?tee$|^tshirt$|^t-shirt$/i, 'T-Shirts'],
+  [/^coord$|^co-ord$/i, 'Co-ord Sets'],
+  [/^denim$|^jeans$/i, 'Denim'],
+  [/^dress(es)?$/i, 'Dresses'],
+  [/^cargo$/i, 'Cargo Pants'],
+  [/^pants?$|^trousers?$/i, 'Pants'],
+  [/^skirts?$/i, 'Skirts'],
+  [/^shorts$/i, 'Shorts'],
+  [/^shirts?$/i, 'Shirts'],
+  [/^bags?$/i, 'Accessories'],
+  [/^tops?$/i, 'Tops'],
+];
+
+const categoryFromTags = (tags: string[]): string => {
+  for (const [pattern, category] of TAG_CATEGORY) {
+    if (tags.some(t => pattern.test(t.trim()))) return category;
+  }
+  return 'Imported';
+};
+
 // ── Image download ───────────────────────────────────────────────────────────
 
 /**
@@ -268,17 +367,27 @@ const resolveCategory = async (typeName: string): Promise<string | null> => {
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 (async () => {
-  if (!csvPath) {
-    console.error('\n  Usage: importShopify.ts <export.csv> [--dry-run] [--limit=N] [--gender=WOMEN]\n');
+  if (!csvPath && !STORE) {
+    console.error('\n  Usage: importShopify.ts <export.csv> | --store=shop.myshopify.com  [--dry-run] [--limit=N] [--gender=WOMEN]\n');
     process.exit(1);
   }
-  if (!fs.existsSync(csvPath)) {
+  if (csvPath && !fs.existsSync(csvPath)) {
     console.error(`\n  File not found: ${csvPath}\n`);
     process.exit(1);
   }
 
-  const rows = parseCsvToObjects(fs.readFileSync(csvPath, 'utf8'));
-  const products = groupRows(rows).slice(0, LIMIT);
+  let rowCount = 0;
+  let products: ShopifyProduct[];
+  if (STORE) {
+    console.log(`\n  Fetching catalogue from ${STORE} ...`);
+    products = await fetchStoreProducts(STORE);
+    rowCount = products.length;
+  } else {
+    const rows = parseCsvToObjects(fs.readFileSync(csvPath!, 'utf8'));
+    rowCount = rows.length;
+    products = groupRows(rows);
+  }
+  products = products.slice(0, LIMIT);
 
   try {
     await prisma.$connect();
@@ -294,8 +403,8 @@ const resolveCategory = async (typeName: string): Promise<string | null> => {
 
   console.log(`\n  Shopify import${DRY_RUN ? '  [DRY RUN — nothing will be written]' : ''}`);
   console.log('  ' + '─'.repeat(78));
-  console.log(`  file            : ${path.basename(csvPath)}`);
-  console.log(`  csv rows        : ${rows.length}`);
+  console.log(`  source          : ${STORE ? STORE + ' (public /products.json)' : path.basename(csvPath!)}`);
+  console.log(`  records         : ${rowCount}`);
   console.log(`  products found  : ${products.length}`);
   console.log(`  gender          : ${GENDER}`);
   console.log(`  images          : ${SKIP_IMAGES ? 'skipped' : 'downloaded'}`);
@@ -310,7 +419,11 @@ const resolveCategory = async (typeName: string): Promise<string | null> => {
   const lowResNotes: string[] = [];
 
   for (const [idx, p] of products.entries()) {
-    const slug = createSlug(p.handle || p.title);
+    // Some handles are auto-generated (untitled-jul15_18-06-20) and make
+    // meaningless URLs, so prefer the title and keep the handle as fallback.
+    const slug = /^(untitled|copy-of)|_\d{2}-\d{2}-\d{2}/.test(p.handle)
+      ? createSlug(p.title || p.handle)
+      : createSlug(p.handle || p.title);
     const label = `[${idx + 1}/${products.length}] ${p.title.slice(0, 44)}`;
 
     if (!p.title) { stats.skipped++; console.log(`  ${label} — SKIP (no title)`); continue; }
@@ -359,7 +472,10 @@ const resolveCategory = async (typeName: string): Promise<string | null> => {
       }
     }
 
-    const categoryId = await resolveCategory(p.type);
+    // product_type is blank on every product in this export, so the
+    // garment-type tag decides the category.
+    const categoryName = (p.type || '').trim() || categoryFromTags(p.tags);
+    const categoryId = await resolveCategory(categoryName);
     if (!categoryId && !DRY_RUN) {
       stats.failed++;
       console.log(`  ${label} — FAIL (no category)`);
@@ -402,7 +518,7 @@ const resolveCategory = async (typeName: string): Promise<string | null> => {
       stats.created++;
       console.log(
         `  ${label} — would import: ${p.variants.length} variant(s), ${p.images.length} image(s), ` +
-        `₹${basePrice}${salePrice ? ` → ₹${salePrice}` : ''}, stock ${totalStock}, type "${p.type || '—'}"`
+        `₹${basePrice}${salePrice ? ` → ₹${salePrice}` : ''}, stock ${totalStock}, category "${categoryName}"`
       );
       continue;
     }
