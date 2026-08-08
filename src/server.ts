@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import app from './app';
 import { config } from './config/env';
 import { prisma } from './config/prisma';
@@ -116,13 +117,24 @@ async function initDatabase() {
   await prisma.setting.createMany({ data: INIT_SETTINGS, skipDuplicates: true });
 
   // 2. Admin user — only if no SUPER_ADMIN exists yet
+  //
+  // This block previously fell back to a hardcoded 'Admin@123'. That constant
+  // is committed to a repository, so every deployment that did not set
+  // ADMIN_PASSWORD shipped with a publicly-known super-admin credential — and
+  // production was in exactly that state until 2026-08-08. There is now no
+  // literal default: either the operator supplies one, or a random password is
+  // generated and printed once to the server log.
   const adminCount = await prisma.user.count({ where: { role: 'SUPER_ADMIN' } });
   if (adminCount === 0) {
-    const adminEmail    = process.env.ADMIN_EMAIL    || 'admin@uniquedressup.com';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@123';
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@uniquedressup.com';
+
+    const supplied = process.env.ADMIN_PASSWORD;
+    const generated = !supplied ? crypto.randomBytes(18).toString('base64url') : null;
+    const adminPassword = supplied || generated!;
+
     // NOTE: if the server previously started with a different ADMIN_EMAIL env var,
     // the admin may already exist with that email. Run scripts/checkAdmin.ts to fix.
-    const hashed        = await bcrypt.hash(adminPassword, 12);
+    const hashed = await bcrypt.hash(adminPassword, 12);
     await prisma.user.create({
       data: {
         email: adminEmail, password: hashed,
@@ -130,7 +142,18 @@ async function initDatabase() {
         role: 'SUPER_ADMIN', isVerified: true,
       },
     });
-    logger.info(`Admin created — email: ${adminEmail} (set ADMIN_PASSWORD env var to change the default)`);
+
+    if (generated) {
+      // Printed once, and only here. Nothing recoverable is stored, so this is
+      // the single opportunity to capture it.
+      logger.warn(
+        `Admin created — ${adminEmail}\n` +
+        `  Generated password (shown once, change it after first login): ${generated}\n` +
+        `  Set ADMIN_PASSWORD to choose your own instead.`
+      );
+    } else {
+      logger.info(`Admin created — email: ${adminEmail} (password from ADMIN_PASSWORD)`);
+    }
   }
 
   // 3. Categories (unique by slug)
