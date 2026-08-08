@@ -94,6 +94,26 @@ const withDerivedStock = (b: any) => {
 };
 
 export class ProductController {
+  /**
+   * Admin catalogue listing — includes drafts, which the public listing hides.
+   */
+  async getAdminProducts(req: Request, res: Response) {
+    const { page, limit, search, categoryId, gender, sortBy, status } =
+      req.query as Record<string, string>;
+
+    const result = await productService.getAdminProducts({
+      page: Number(page) || 1,
+      limit: Number(limit) || 20,
+      search,
+      categoryId,
+      gender,
+      sortBy: sortBy as any,
+      status: status === 'active' || status === 'draft' ? status : undefined,
+    });
+
+    return sendPaginated(res, result.products, result.total, result.page, result.limit);
+  }
+
   async getProducts(req: Request, res: Response) {
     const {
       page, limit, search, categoryId, categorySlug, collectionSlug,

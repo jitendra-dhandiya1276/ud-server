@@ -19,6 +19,8 @@ router.get('/search', productController.search.bind(productController));
 router.get('/:slug', productController.getProductBySlug.bind(productController));
 
 // Admin routes
+// MUST precede '/admin/:id', otherwise "list" is captured as an id.
+router.get('/admin/list', authenticate, isAdminOrSubAdmin, productController.getAdminProducts.bind(productController));
 router.get('/admin/:id', authenticate, isAdminOrSubAdmin, productController.getProductById.bind(productController));
 router.post('/', authenticate, isAdminOrSubAdmin, upload.array('images', 10), checkResolution, productController.createProduct.bind(productController));
 router.put('/:id', authenticate, isAdminOrSubAdmin, upload.array('images', 10), checkResolution, productController.updateProduct.bind(productController));

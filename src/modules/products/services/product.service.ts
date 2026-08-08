@@ -118,6 +118,65 @@ export class ProductService {
     return { products, total, page, limit };
   }
 
+  /**
+   * Admin catalogue listing — every product regardless of isActive.
+   *
+   * The storefront listing hard-filters `isActive: true`, which is correct for
+   * shoppers but made the admin screen unusable: the admin page was calling the
+   * same public endpoint, so a deactivated product vanished from the catalogue
+   * entirely and could never be found again to re-publish it. Imported drafts
+   * were invisible for the same reason.
+   *
+   * Soft-deleted products stay excluded — those are deleted, not hidden.
+   */
+  async getAdminProducts(filters: ProductFilters & { status?: 'active' | 'draft' }) {
+    const { page, limit, skip } = paginationParams(filters.page, filters.limit);
+
+    const where: Prisma.ProductWhereInput = { deletedAt: null };
+    const and: Prisma.ProductWhereInput[] = [];
+
+    if (filters.status === 'active') where.isActive = true;
+    if (filters.status === 'draft') where.isActive = false;
+
+    if (filters.search) {
+      and.push({
+        OR: [
+          { name: { contains: filters.search } },
+          { sku: { contains: filters.search } },
+          { brand: { contains: filters.search } },
+        ],
+      });
+    }
+    if (filters.categoryId) where.categoryId = filters.categoryId;
+    if (filters.gender && filters.gender !== 'ALL') {
+      (where as any).gender = filters.gender.toUpperCase();
+    }
+    if (and.length) where.AND = and;
+
+    const orderBy: Prisma.ProductOrderByWithRelationInput =
+      filters.sortBy === 'name' ? { name: 'asc' } :
+      filters.sortBy === 'price_asc' ? { basePrice: 'asc' } :
+      filters.sortBy === 'price_desc' ? { basePrice: 'desc' } :
+      { createdAt: 'desc' };
+
+    const [total, products] = await Promise.all([
+      prisma.product.count({ where }),
+      prisma.product.findMany({
+        where,
+        orderBy,
+        skip,
+        take: limit,
+        include: {
+          images: { orderBy: [{ isPrimary: 'desc' as const }, { sortOrder: 'asc' as const }], take: 1 },
+          category: { select: { id: true, name: true, slug: true } },
+          _count: { select: { variants: true } },
+        },
+      }),
+    ]);
+
+    return { products, total, page, limit };
+  }
+
   async getProductBySlug(slug: string) {
     const product = await prisma.product.findFirst({
       where: { slug, isActive: true, deletedAt: null },
