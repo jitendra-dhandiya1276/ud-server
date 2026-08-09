@@ -1,6 +1,9 @@
 import { Request, Response } from 'express';
 import { prisma } from '../../../config/prisma';
+import fs from 'fs';
+import path from 'path';
 import { getImageUrl } from '../../../utils/upload';
+import { checkVideoResolution, extractPoster } from '../../../utils/video';
 
 
 /**
@@ -10,7 +13,7 @@ import { getImageUrl } from '../../../utils/upload';
  * Booleans and numbers arrive as strings when the request is multipart, so they
  * are coerced here rather than trusted as-is.
  */
-const resolveMedia = (req: Request) => {
+const resolveMedia = async (req: Request) => {
   const files = req.files as Record<string, Express.Multer.File[]> | undefined;
   const videoFile = files?.video?.[0];
   const thumbFile = files?.thumbnail?.[0];
@@ -19,9 +22,31 @@ const resolveMedia = (req: Request) => {
   const bool = (v: any) =>
     v === undefined ? undefined : v === true || v === 'true';
 
+  let videoUrl = videoFile ? getImageUrl(videoFile.path) : body.videoUrl;
+  let thumbnail = thumbFile ? getImageUrl(thumbFile.path) : body.thumbnail;
+
+  if (videoFile) {
+    // A reel tile is 240px wide at 3x DPR, so anything under 720px is stretched
+    // and looks soft — the same failure mode as undersized product photos.
+    const check = await checkVideoResolution(videoFile.path);
+    if (!check.ok) {
+      await fs.promises.unlink(videoFile.path).catch(() => {});
+      if (thumbFile) await fs.promises.unlink(thumbFile.path).catch(() => {});
+      return { error: check.message };
+    }
+
+    // No poster supplied: pull one from the video itself so the tile still has
+    // a sharp frame before playback starts, and the admin only uploads once.
+    if (!thumbFile && !body.thumbnail) {
+      const posterPath = videoFile.path.replace(/\.[^.]+$/, '-poster.jpg');
+      const made = await extractPoster(videoFile.path, posterPath);
+      if (made) thumbnail = getImageUrl(made);
+    }
+  }
+
   return {
-    videoUrl: videoFile ? getImageUrl(videoFile.path) : body.videoUrl,
-    thumbnail: thumbFile ? getImageUrl(thumbFile.path) : body.thumbnail,
+    videoUrl,
+    thumbnail,
     isActive: bool(body.isActive),
     sortOrder: body.sortOrder !== undefined ? Number(body.sortOrder) : undefined,
   };
@@ -60,7 +85,10 @@ export class InstagramReelsController {
       if (!reelUrl) {
         return res.status(400).json({ success: false, message: 'reelUrl is required' });
       }
-      const media = resolveMedia(req);
+      const media = await resolveMedia(req);
+      if ('error' in media && media.error) {
+        return res.status(400).json({ success: false, message: media.error });
+      }
       const reel = await prisma.instagramReel.create({
         data: {
           title: title || null,
@@ -83,7 +111,10 @@ export class InstagramReelsController {
     try {
       const { id } = req.params;
       const { title, caption, reelUrl } = req.body;
-      const media = resolveMedia(req);
+      const media = await resolveMedia(req);
+      if ('error' in media && media.error) {
+        return res.status(400).json({ success: false, message: media.error });
+      }
       const reel = await prisma.instagramReel.update({
         where: { id },
         data: {
