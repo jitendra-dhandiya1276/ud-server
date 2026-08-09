@@ -112,10 +112,24 @@ export const handleUpload = (
  */
 export const validateUploadResolution = (folder: UploadFolder) => {
   return async (req: Request, res: Response, next: NextFunction) => {
-    const files: Express.Multer.File[] = [
-      ...((req.files as Express.Multer.File[] | undefined) ?? []),
-      ...(req.file ? [req.file] : []),
-    ];
+    // multer exposes req.files as an ARRAY for .array() but as an OBJECT keyed
+    // by field name for .fields(). Handle both, or routes using .fields()
+    // silently validate nothing.
+    const raw = req.files as
+      | Express.Multer.File[]
+      | Record<string, Express.Multer.File[]>
+      | undefined;
+
+    const collected: Express.Multer.File[] = Array.isArray(raw)
+      ? raw
+      : raw
+        ? Object.values(raw).flat()
+        : [];
+    if (req.file) collected.push(req.file);
+
+    // Only images have a resolution to check. A reel's video shares the same
+    // request, and running it through Sharp would fail and reject the upload.
+    const files = collected.filter(f => f.mimetype.startsWith('image/'));
     if (files.length === 0) return next();
 
     const enforce = process.env.IMAGE_MIN_RESOLUTION_ENFORCE !== 'false';

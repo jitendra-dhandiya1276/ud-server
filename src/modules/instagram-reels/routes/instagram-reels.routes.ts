@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import controller from '../controllers/instagram-reels.controller';
 import { authenticate, isAdminOrSubAdmin } from '../../../middlewares/auth.middleware';
-import { createUploader, VIDEO_MIME_TYPES } from '../../../utils/upload';
+import { createUploader, VIDEO_MIME_TYPES, validateUploadResolution } from '../../../utils/upload';
 import { config } from '../../../config/env';
 
 const router = Router();
@@ -48,14 +48,23 @@ const handleMedia = (req: Request, res: Response, next: NextFunction) => {
   });
 };
 
+/**
+ * A reel card renders 240px wide at 9:16 on desktop, so a poster needs ~720px
+ * to stay sharp on a high-DPR screen. Without this a 200px screenshot would be
+ * accepted and then stretched 3.6x — the same blur problem as product images.
+ */
+const checkPoster = validateUploadResolution('reels');
+
 // Public
 router.get('/', controller.getActive.bind(controller));
 
 // Admin
 router.get('/admin', authenticate, isAdminOrSubAdmin, controller.getAll.bind(controller));
-router.post('/', authenticate, isAdminOrSubAdmin, handleMedia, controller.create.bind(controller));
+// checkPoster only inspects image files — the video in the same request is
+// skipped, since it has no resolution Sharp can read.
+router.post('/', authenticate, isAdminOrSubAdmin, handleMedia, checkPoster, controller.create.bind(controller));
 router.patch('/reorder', authenticate, isAdminOrSubAdmin, controller.reorder.bind(controller));
-router.put('/:id', authenticate, isAdminOrSubAdmin, handleMedia, controller.update.bind(controller));
+router.put('/:id', authenticate, isAdminOrSubAdmin, handleMedia, checkPoster, controller.update.bind(controller));
 router.delete('/:id', authenticate, isAdminOrSubAdmin, controller.delete.bind(controller));
 
 export default router;

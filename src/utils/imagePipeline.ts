@@ -447,6 +447,8 @@ export const MIN_SOURCE_WIDTH: Record<string, number> = {
   products: 1000,   // product grid asks for up to 828w, detail view up to 1920w
   categories: 800,  // category cards render around 640w on desktop
   banners: 1440,    // hero spans the viewport
+  // Reel cards render 240px wide at 9:16; 3x for high-DPR screens.
+  reels: 720,
   media: 600,
   blogs: 800,
   stores: 600,
