@@ -8,7 +8,7 @@ import { config } from '../config/env';
 import { prewarmDerivatives, checkSourceResolution } from './imagePipeline';
 import { logger } from './logger';
 
-type UploadFolder = 'products' | 'banners' | 'categories' | 'blogs' | 'users' | 'media' | 'stores';
+type UploadFolder = 'products' | 'banners' | 'categories' | 'blogs' | 'users' | 'media' | 'stores' | 'reels';
 
 const getUploadPath = (folder: UploadFolder): string => {
   const dir = path.join(config.upload.path, folder);
@@ -30,18 +30,30 @@ const storage = (folder: UploadFolder) =>
     },
   });
 
-const fileFilter = (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
-  if (config.upload.allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Invalid file type. Only images are allowed.'));
-  }
-};
+/** Video types accepted for Instagram reels. */
+export const VIDEO_MIME_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v'];
 
-export const createUploader = (folder: UploadFolder, maxFileSizeBytes?: number) =>
+const makeFileFilter = (allowed?: string[]) =>
+  (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
+    const permitted = allowed ?? config.upload.allowedTypes;
+    if (permitted.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      const kind = permitted.some(t => t.startsWith('video/')) ? 'images or videos' : 'images';
+      cb(new Error(`Invalid file type "${file.mimetype}". Only ${kind} are allowed.`));
+    }
+  };
+
+const fileFilter = makeFileFilter();
+
+export const createUploader = (
+  folder: UploadFolder,
+  maxFileSizeBytes?: number,
+  allowedMimeTypes?: string[]
+) =>
   multer({
     storage: storage(folder),
-    fileFilter,
+    fileFilter: allowedMimeTypes ? makeFileFilter(allowedMimeTypes) : fileFilter,
     limits: { fileSize: maxFileSizeBytes ?? config.upload.maxFileSize },
   });
 
@@ -167,7 +179,9 @@ export const getImageUrl = (filePath: string): string => {
   // generation for the whole application. Pre-warming is fire-and-forget on
   // setImmediate, so it never delays the upload response, and a failure only
   // means the first visitor pays for the transform instead.
-  if (config.image.prewarmOnUpload) {
+  // Videos are not images — Sharp would only throw on them.
+  const isVideo = /\.(mp4|webm|mov|m4v)$/i.test(absFile);
+  if (config.image.prewarmOnUpload && !isVideo) {
     prewarmDerivatives(absFile);
   }
 
