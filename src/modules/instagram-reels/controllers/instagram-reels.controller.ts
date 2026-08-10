@@ -68,8 +68,13 @@ export class InstagramReelsController {
   // ── Public: get active reels for homepage ─────────────────────
   async getActive(req: Request, res: Response) {
     try {
+      // A reel is only displayable if it has its own video — that is what the
+      // tile plays. Rows created before the video became mandatory would
+      // otherwise render as empty black tiles on the homepage, so they are
+      // withheld from the storefront rather than shown broken. The admin
+      // listing still returns everything so they can be fixed or removed.
       const reels = await prisma.instagramReel.findMany({
-        where: { isActive: true },
+        where: { isActive: true, videoUrl: { not: null } },
         orderBy: { sortOrder: 'asc' },
       });
       res.json({ success: true, data: reels });
