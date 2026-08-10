@@ -134,3 +134,54 @@ export const checkVideoResolution = async (absolutePath: string): Promise<VideoC
 
   return { ok: true, info };
 };
+
+/**
+ * Re-encode an uploaded reel into a web-delivery rendition.
+ *
+ * Reels are recorded at 1080x1920 and can run to tens of megabytes, but the
+ * homepage tile is 240px wide — serving the original means a visitor downloads
+ * roughly twenty times the pixels they can see, and playback stalls while it
+ * buffers. This produces one rendition sized for the tile that starts playing
+ * almost immediately.
+ *
+ * Settings and why:
+ *   scale to <=720px   240px tile x 3 for high-DPR screens; -2 keeps the
+ *                      aspect and forces an even height (H.264 requires it)
+ *   H.264 + yuv420p    the only combination every browser and iOS decodes
+ *   crf 26             visually clean at this display size; lower is wasted
+ *   +faststart         moves the index to the front so the browser can start
+ *                      playing before the file finishes downloading. Without
+ *                      this a progressive MP4 waits for the whole file.
+ *   aac 64k            kept so the unmute control still works; tiles start muted
+ *
+ * Returns null on failure, so the caller can fall back to the original upload.
+ */
+export const optimizeVideoForWeb = async (
+  inputPath: string,
+  outputPath: string,
+  maxWidth = 720
+): Promise<string | null> => {
+  if (!(await hasFfmpeg())) return null;
+
+  try {
+    await run('ffmpeg', [
+      '-i', inputPath,
+      '-vf', `scale='min(${maxWidth},iw)':-2`,
+      '-c:v', 'libx264',
+      '-profile:v', 'high',
+      '-pix_fmt', 'yuv420p',
+      '-preset', 'veryfast',
+      '-crf', '26',
+      '-c:a', 'aac',
+      '-b:a', '64k',
+      '-movflags', '+faststart',
+      '-y', outputPath,
+    ], { timeout: 300_000, maxBuffer: 1024 * 1024 * 8 });
+
+    if (!fs.existsSync(outputPath)) return null;
+    return outputPath;
+  } catch (error) {
+    logger.warn(`Video optimisation failed for ${path.basename(inputPath)}: ${(error as Error).message}`);
+    return null;
+  }
+};

@@ -3,7 +3,7 @@ import { prisma } from '../../../config/prisma';
 import fs from 'fs';
 import path from 'path';
 import { getImageUrl } from '../../../utils/upload';
-import { checkVideoResolution, extractPoster } from '../../../utils/video';
+import { checkVideoResolution, extractPoster, optimizeVideoForWeb } from '../../../utils/video';
 
 
 /**
@@ -35,11 +35,23 @@ const resolveMedia = async (req: Request) => {
       return { error: check.message };
     }
 
-    // No poster supplied: pull one from the video itself so the tile still has
-    // a sharp frame before playback starts, and the admin only uploads once.
+    // Re-encode for delivery. The original is 1080x1920 and can be tens of MB;
+    // the tile is 240px wide, so serving the source means downloading ~20x the
+    // pixels anyone can see and stalling on playback. The optimised rendition
+    // replaces it, and the source is removed once the encode succeeds.
+    const webPath = videoFile.path.replace(/\.[^.]+$/, '-web.mp4');
+    const optimised = await optimizeVideoForWeb(videoFile.path, webPath);
+    const playablePath = optimised ?? videoFile.path;
+    if (optimised && optimised !== videoFile.path) {
+      await fs.promises.unlink(videoFile.path).catch(() => {});
+    }
+    videoUrl = getImageUrl(playablePath);
+
+    // No poster supplied: pull one from the video itself so the tile shows a
+    // sharp frame before playback starts and the admin uploads only one file.
     if (!thumbFile && !body.thumbnail) {
-      const posterPath = videoFile.path.replace(/\.[^.]+$/, '-poster.jpg');
-      const made = await extractPoster(videoFile.path, posterPath);
+      const posterPath = playablePath.replace(/\.[^.]+$/, '-poster.jpg');
+      const made = await extractPoster(playablePath, posterPath);
       if (made) thumbnail = getImageUrl(made);
     }
   }
@@ -82,18 +94,20 @@ export class InstagramReelsController {
   async create(req: Request, res: Response) {
     try {
       const { title, caption, reelUrl } = req.body;
-      if (!reelUrl) {
-        return res.status(400).json({ success: false, message: 'reelUrl is required' });
-      }
       const media = await resolveMedia(req);
       if ('error' in media && media.error) {
         return res.status(400).json({ success: false, message: media.error });
+      }
+      // The video IS the reel now — the Instagram embed cannot be styled into
+      // the tile, so a reel without its own video has nothing to play.
+      if (!media.videoUrl) {
+        return res.status(400).json({ success: false, message: 'A video file is required.' });
       }
       const reel = await prisma.instagramReel.create({
         data: {
           title: title || null,
           caption: caption || null,
-          reelUrl,
+          reelUrl: reelUrl || '',
           videoUrl: media.videoUrl || null,
           thumbnail: media.thumbnail || null,
           isActive: media.isActive !== false,
