@@ -8,8 +8,6 @@ import { getImageUrl } from '../../../utils/upload';
 import { paginationParams } from '../../../utils/slugify';
 
 // Fixed hero banner resolution
-const HERO_W = 1440;
-const HERO_H = 560;
 
 export class BannerController {
   async getByType(req: Request, res: Response) {
@@ -49,23 +47,48 @@ export class BannerController {
     return sendPaginated(res, data, total, p, l, 'Banners fetched');
   }
 
-  private async processImage(file: Express.Multer.File, type?: string): Promise<string> {
-    const isHero = !type || type.toUpperCase() === 'HERO';
-    const base = path.join(path.dirname(file.path), path.basename(file.path, path.extname(file.path)));
-    const outPath = `${base}-p.webp`;
-
-    // Read into buffer first so Sharp releases the file handle before we delete it (Windows EBUSY fix)
+  /**
+   * Store the banner as a high-quality master.
+   *
+   * This used to hard-crop every hero to 1440x560 and re-encode it to WebP q85,
+   * deleting the original. Two problems came out of that:
+   *
+   *   - 1440px is the master ceiling, so a 1440px-wide viewport at 2x DPR (2880
+   *     needed) got an upscale. Requesting 1920w or 2560w returned the same
+   *     bytes as 1440w because there were no more pixels to give. Heroes were
+   *     soft on every retina screen.
+   *   - The WebP pass is lossy, and /img then encodes AVIF from it. Compressing
+   *     twice throws away detail that the second pass cannot recover.
+   *
+   * The master is now kept at its original quality and format, bounded only by
+   * a sane pixel ceiling so a 50-megapixel upload cannot sit on disk forever.
+   * Delivery sizing is left entirely to the derivative pipeline, which already
+   * serves AVIF matched to the viewport — the storefront crops with CSS
+   * object-fit, so the fixed server-side crop bought nothing.
+   */
+  private async processImage(file: Express.Multer.File, _type?: string): Promise<string> {
     const inputBuffer = fs.readFileSync(file.path);
-    const pipeline = sharp(inputBuffer);
-    if (isHero) {
-      pipeline.resize(HERO_W, HERO_H, { fit: 'cover', position: 'centre' });
-    }
-    await pipeline.webp({ quality: 85 }).toFile(outPath);
+    const meta = await sharp(inputBuffer).metadata();
 
-    if (fs.existsSync(file.path)) {
-      fs.unlinkSync(file.path);
+    // Above this there is no viewport that benefits, only disk and encode time.
+    const MASTER_MAX_WIDTH = 3840;
+
+    if (meta.width && meta.width > MASTER_MAX_WIDTH) {
+      const base = path.join(path.dirname(file.path), path.basename(file.path, path.extname(file.path)));
+      const outPath = `${base}-master.jpg`;
+      await sharp(inputBuffer)
+        .rotate()
+        .resize({ width: MASTER_MAX_WIDTH, withoutEnlargement: true })
+        .withMetadata()
+        // Near-lossless: this is an archival master, not what visitors receive.
+        .jpeg({ quality: 95, mozjpeg: true })
+        .toFile(outPath);
+      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      return getImageUrl(outPath);
     }
-    return getImageUrl(outPath);
+
+    // Already a sensible size — keep exactly what was uploaded.
+    return getImageUrl(file.path);
   }
 
   private mapBody(body: any) {
