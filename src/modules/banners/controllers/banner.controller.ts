@@ -98,12 +98,31 @@ export class BannerController {
     if (data.isActive !== undefined) data.isActive = data.isActive === 'true' || data.isActive === true;
     if (data.sortOrder !== undefined) data.sortOrder = parseInt(data.sortOrder, 10) || 0;
     if (data.gender !== undefined) data.gender = String(data.gender).toUpperCase();
+    if (data.mobileImage === '') delete data.mobileImage;
     return data;
+  }
+
+  /**
+   * Pull the desktop and mobile files out of a multipart request.
+   *
+   * `mobileImage` has existed on the model since the beginning but nothing ever
+   * populated it. A hero is roughly 2.5:1, so on a phone it is either cropped
+   * to a sliver or letterboxed — a separate portrait crop is how every large
+   * fashion storefront handles this.
+   */
+  private filesFrom(req: Request) {
+    const grouped = req.files as Record<string, Express.Multer.File[]> | undefined;
+    return {
+      desktop: grouped?.image?.[0] ?? (req.file as Express.Multer.File | undefined),
+      mobile: grouped?.mobileImage?.[0],
+    };
   }
 
   async create(req: Request, res: Response) {
     const data = this.mapBody(req.body);
-    if (req.file) data.image = await this.processImage(req.file, data.type);
+    const { desktop, mobile } = this.filesFrom(req);
+    if (desktop) data.image = await this.processImage(desktop, data.type);
+    if (mobile) data.mobileImage = await this.processImage(mobile, data.type);
     const banner = await prisma.banner.create({ data });
     return sendSuccess(res, banner, 'Banner created', 201);
   }
@@ -111,7 +130,9 @@ export class BannerController {
   async update(req: Request, res: Response) {
     const { id } = req.params;
     const data = this.mapBody(req.body);
-    if (req.file) data.image = await this.processImage(req.file, data.type);
+    const { desktop, mobile } = this.filesFrom(req);
+    if (desktop) data.image = await this.processImage(desktop, data.type);
+    if (mobile) data.mobileImage = await this.processImage(mobile, data.type);
     const banner = await prisma.banner.update({ where: { id }, data });
     return sendSuccess(res, banner, 'Banner updated');
   }

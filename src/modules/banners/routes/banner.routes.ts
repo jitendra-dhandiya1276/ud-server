@@ -15,6 +15,11 @@ const upload = createUploader('banners', MAX_BANNER_BYTES);
 // Heroes span the viewport, so anything under 1440px wide is upscaled.
 const checkResolution = validateUploadResolution('banners');
 
+const acceptImages = upload.fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'mobileImage', maxCount: 1 },
+]);
+
 // Multer error handler for this route — turns LIMIT_FILE_SIZE into a 400
 const handleUpload = (req: Request, res: Response, next: NextFunction) => {
   upload.single('image')(req, res, (err: any) => {
