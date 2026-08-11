@@ -9,6 +9,13 @@ import { paginationParams } from '../../../utils/slugify';
 
 // Fixed hero banner resolution
 
+/**
+ * Hero framing. These now define the ASPECT the master is cropped to, not
+ * its pixel size — pinning the size to 1440 is what made retina heroes soft.
+ */
+const HERO_W = 1440;
+const HERO_H = 560;
+
 export class BannerController {
   async getByType(req: Request, res: Response) {
     const { type } = req.params;
@@ -48,47 +55,68 @@ export class BannerController {
   }
 
   /**
-   * Store the banner as a high-quality master.
+   * Store the banner cropped to the hero framing, at full resolution.
    *
-   * This used to hard-crop every hero to 1440x560 and re-encode it to WebP q85,
-   * deleting the original. Two problems came out of that:
+   * The original code cropped every hero to exactly 1440x560 and re-encoded it
+   * to WebP q85, deleting the source. The FRAMING was right — a consistent
+   * 2.57:1 hero is the design — but pinning the pixel size to 1440 made 1440px
+   * the master ceiling, so a 1440px viewport at 2x DPR (2880 needed) got an
+   * upscale and every retina screen saw a soft hero. Asking for 1920w or 2560w
+   * returned the same bytes as 1440w because there were no more pixels.
    *
-   *   - 1440px is the master ceiling, so a 1440px-wide viewport at 2x DPR (2880
-   *     needed) got an upscale. Requesting 1920w or 2560w returned the same
-   *     bytes as 1440w because there were no more pixels to give. Heroes were
-   *     soft on every retina screen.
-   *   - The WebP pass is lossy, and /img then encodes AVIF from it. Compressing
-   *     twice throws away detail that the second pass cannot recover.
+   * So the aspect is kept and the resolution is not: the image is cropped to
+   * the same 1440:560 ratio the design expects, but at the source's own
+   * resolution, capped at 3840 wide. A 3000px upload becomes 3000x1167 — the
+   * identical framing, with 2x the detail available to the derivative pipeline.
    *
-   * The master is now kept at its original quality and format, bounded only by
-   * a sane pixel ceiling so a 50-megapixel upload cannot sit on disk forever.
-   * Delivery sizing is left entirely to the derivative pipeline, which already
-   * serves AVIF matched to the viewport — the storefront crops with CSS
-   * object-fit, so the fixed server-side crop bought nothing.
+   * Mobile crops are left alone: they are portrait by definition and are
+   * selected by a media query, not cropped to the desktop ratio.
    */
-  private async processImage(file: Express.Multer.File, _type?: string): Promise<string> {
+  private async processImage(file: Express.Multer.File, type?: string): Promise<string> {
+    const isHero = !type || type.toUpperCase() === 'HERO';
+    const isMobileCrop = file.fieldname === 'mobileImage';
+
     const inputBuffer = fs.readFileSync(file.path);
     const meta = await sharp(inputBuffer).metadata();
 
-    // Above this there is no viewport that benefits, only disk and encode time.
+    // Beyond this no viewport benefits, only disk and encode time.
     const MASTER_MAX_WIDTH = 3840;
+    const needsCrop = isHero && !isMobileCrop;
+    const tooWide = (meta.width ?? 0) > MASTER_MAX_WIDTH;
 
-    if (meta.width && meta.width > MASTER_MAX_WIDTH) {
-      const base = path.join(path.dirname(file.path), path.basename(file.path, path.extname(file.path)));
-      const outPath = `${base}-master.jpg`;
-      await sharp(inputBuffer)
-        .rotate()
-        .resize({ width: MASTER_MAX_WIDTH, withoutEnlargement: true })
-        .withMetadata()
-        // Near-lossless: this is an archival master, not what visitors receive.
-        .jpeg({ quality: 95, mozjpeg: true })
-        .toFile(outPath);
-      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-      return getImageUrl(outPath);
+    if (!needsCrop && !tooWide) {
+      // Nothing to do — keep exactly what was uploaded.
+      return getImageUrl(file.path);
     }
 
-    // Already a sensible size — keep exactly what was uploaded.
-    return getImageUrl(file.path);
+    const base = path.join(path.dirname(file.path), path.basename(file.path, path.extname(file.path)));
+    const outPath = `${base}-master.jpg`;
+
+    let pipeline = sharp(inputBuffer).rotate();
+
+    if (needsCrop) {
+      // Same 1440:560 framing as before, at whatever resolution the source
+      // supports (bounded above). withoutEnlargement keeps a small upload from
+      // being inflated into a fake.
+      const targetWidth = Math.min(meta.width ?? HERO_W, MASTER_MAX_WIDTH);
+      const targetHeight = Math.round(targetWidth * (HERO_H / HERO_W));
+      pipeline = pipeline.resize(targetWidth, targetHeight, {
+        fit: 'cover',
+        position: 'centre',
+        withoutEnlargement: true,
+      });
+    } else if (tooWide) {
+      pipeline = pipeline.resize({ width: MASTER_MAX_WIDTH, withoutEnlargement: true });
+    }
+
+    await pipeline
+      .withMetadata()
+      // Near-lossless: this is the archival master, not what visitors receive.
+      .jpeg({ quality: 95, mozjpeg: true })
+      .toFile(outPath);
+
+    if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+    return getImageUrl(outPath);
   }
 
   private mapBody(body: any) {
@@ -102,14 +130,6 @@ export class BannerController {
     return data;
   }
 
-  /**
-   * Pull the desktop and mobile files out of a multipart request.
-   *
-   * `mobileImage` has existed on the model since the beginning but nothing ever
-   * populated it. A hero is roughly 2.5:1, so on a phone it is either cropped
-   * to a sliver or letterboxed — a separate portrait crop is how every large
-   * fashion storefront handles this.
-   */
   private filesFrom(req: Request) {
     const grouped = req.files as Record<string, Express.Multer.File[]> | undefined;
     return {
