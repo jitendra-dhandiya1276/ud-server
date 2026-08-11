@@ -470,9 +470,11 @@ export interface ResolutionCheck {
  */
 export const checkSourceResolution = async (
   absolutePath: string,
-  folder: string
+  folder: string,
+  /** Overrides the folder default — see validateUploadResolution. */
+  requiredOverride?: number
 ): Promise<ResolutionCheck> => {
-  const required = MIN_SOURCE_WIDTH[folder] ?? 0;
+  const required = requiredOverride ?? MIN_SOURCE_WIDTH[folder] ?? 0;
   const meta = await readImageMetadata(absolutePath);
 
   if (!meta?.width || !meta?.height) {

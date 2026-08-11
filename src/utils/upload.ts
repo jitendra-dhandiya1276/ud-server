@@ -110,7 +110,18 @@ export const handleUpload = (
  *
  * Set IMAGE_MIN_RESOLUTION_ENFORCE=false to log warnings instead of rejecting.
  */
-export const validateUploadResolution = (folder: UploadFolder) => {
+export const validateUploadResolution = (
+  folder: UploadFolder,
+  /**
+   * Per-field overrides of the folder minimum.
+   *
+   * A folder-wide floor is too blunt once a request carries images with
+   * different jobs. A desktop hero spans the viewport and needs >=1440px, but
+   * the portrait crop beside it is displayed at phone width — 1080x1440 is the
+   * standard for that and would be rejected by the desktop floor for no reason.
+   */
+  fieldMinimums: Record<string, number> = {}
+) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     // multer exposes req.files as an ARRAY for .array() but as an OBJECT keyed
     // by field name for .fields(). Handle both, or routes using .fields()
@@ -136,7 +147,8 @@ export const validateUploadResolution = (folder: UploadFolder) => {
     const failures: string[] = [];
 
     for (const file of files) {
-      const result = await checkSourceResolution(file.path, folder).catch(() => null);
+      const override = fieldMinimums[file.fieldname];
+      const result = await checkSourceResolution(file.path, folder, override).catch(() => null);
       if (result && !result.ok) {
         failures.push(`"${file.originalname}": ${result.message}`);
       }

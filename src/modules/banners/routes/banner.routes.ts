@@ -13,7 +13,9 @@ const router = Router();
 const MAX_BANNER_BYTES = config.upload.maxFileSize;
 const upload = createUploader('banners', MAX_BANNER_BYTES);
 // Heroes span the viewport, so anything under 1440px wide is upscaled.
-const checkResolution = validateUploadResolution('banners');
+// The desktop hero spans the viewport (1440 floor). The portrait crop is
+// shown at phone width, where 1080x1440 is the norm, so it gets its own.
+const checkResolution = validateUploadResolution('banners', { mobileImage: 800 });
 
 const acceptImages = upload.fields([
   { name: 'image', maxCount: 1 },
