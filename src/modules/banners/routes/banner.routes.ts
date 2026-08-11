@@ -20,11 +20,17 @@ const acceptImages = upload.fields([
   { name: 'mobileImage', maxCount: 1 },
 ]);
 
-// Multer error handler for this route — turns LIMIT_FILE_SIZE into a 400
+// Multer error handler for this route — turns rejections into a clear 400.
+// Uses acceptImages (fields) rather than single('image'), otherwise the
+// mobileImage part is rejected as an unexpected field.
 const handleUpload = (req: Request, res: Response, next: NextFunction) => {
-  upload.single('image')(req, res, (err: any) => {
-    if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ success: false, message: `Image must be ${Math.round(MAX_BANNER_BYTES / 1048576)} MB or smaller.` });
+  acceptImages(req, res, (err: any) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ success: false, message: `Image must be ${Math.round(MAX_BANNER_BYTES / 1048576)} MB or smaller.` });
+      }
+      // e.g. LIMIT_UNEXPECTED_FILE — say which field so it is actionable.
+      return res.status(400).json({ success: false, message: `${err.message}${err.field ? ` ("${err.field}")` : ''}` });
     }
     if (err) return next(err);
     next();
