@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../../config/prisma';
 import { AppError } from '../../../middlewares/error.middleware';
 import { createSlug } from '../../../utils/slugify';
+import { colorNameToHex } from '../../../utils/colorName';
 import { paginationParams } from '../../../utils/slugify';
 
 export interface ProductFilters {
@@ -280,7 +281,9 @@ export class ProductService {
       data: {
         productId,
         color: data.color || '',
-        colorHex: data.colorHex || '#000000',
+        // The admin types a colour NAME now; the swatch is derived from it so
+        // storefront rendering is unchanged. An explicit hex still wins.
+        colorHex: data.colorHex || colorNameToHex(data.color) || '#CCCCCC',
         size: data.size || '',
         sku: data.sku || null,
         price: data.price !== undefined && data.price !== '' ? Number(data.price) : null,
@@ -297,7 +300,14 @@ export class ProductService {
     if (!variant) throw new AppError('Variant not found', 404);
 
     const updates: any = {};
-    if (data.color !== undefined) updates.color = data.color;
+    if (data.color !== undefined) {
+      updates.color = data.color;
+      // Renaming the colour should move the swatch with it, unless a hex was
+      // sent explicitly in the same request.
+      if (data.colorHex === undefined) {
+        updates.colorHex = colorNameToHex(data.color) || '#CCCCCC';
+      }
+    }
     if (data.colorHex !== undefined) updates.colorHex = data.colorHex;
     if (data.size !== undefined) updates.size = data.size;
     if (data.sku !== undefined) updates.sku = data.sku;

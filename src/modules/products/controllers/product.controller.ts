@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { productService } from '../services/product.service';
 import { sendSuccess, sendPaginated, sendError } from '../../../utils/response';
 import { getImageUrl } from '../../../utils/upload';
+import { colorNameToHex } from '../../../utils/colorName';
 
 const parseArray = (val: any): string[] | undefined => {
   if (!val) return undefined;
@@ -52,7 +53,9 @@ const sanitizeProductBody = (body: any) => {
         b.variantsData = parsed.flatMap((v: any) =>
           (v.sizes || []).map((s: any) => ({
             color: v.color || undefined,
-            colorHex: v.colorHex || undefined,
+            // Admins type a colour name; derive the swatch here so the bulk
+            // create path matches the single-variant path.
+            colorHex: v.colorHex || colorNameToHex(v.color) || undefined,
             size: s.size || undefined,
             stockQuantity: s.stock ? Number(s.stock) : 0,
             price: s.price ? Number(s.price) : undefined,
