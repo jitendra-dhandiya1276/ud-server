@@ -840,6 +840,17 @@ Base URL: `{BASE_URL}/api/v1`. **Auth legend:** 🔓 public · 🔐 authenticate
 | `lib/imageLoader.ts` | frontend | `next/image` custom loader; rewrites `/uploads/…` → `/img/…` |
 
 **Rules**
+- **The hero box tracks the artwork's aspect ratio, it does not set its own height.** Banner masters
+  are cropped server-side to 1440:560 (2.57:1). `HeroSlider` previously used fixed pixel heights per
+  breakpoint (xs 260, sm 400, md 500); a phone viewport is far taller relative to its width than
+  2.57:1, so `object-fit: cover` sliced the sides off — at 390px wide only **58% of the banner width
+  survived**, cutting through headlines baked into the artwork. Below 1200px the container now uses
+  `aspect-ratio: 1440 / 560` with `height: auto`, so cover has nothing left to crop. Above 1200px it
+  keeps a fixed 580px, where the true ratio would be 747px tall and push the page below the fold.
+  If you change the backend crop ratio, change `HERO_ASPECT` with it or the crop returns.
+- **A `mobileImage` is the only way to get a tall mobile hero.** Wide artwork at 390px is a ~152px
+  strip — complete, but short. Uploading a portrait crop switches the box to 4:5 at the same 768px
+  the `<picture>` source switches, which is what art direction is for. No banner currently has one.
 - **Source resolution is the one thing the pipeline cannot fix.** It never upscales by design, so a source narrower than its render box is stretched by the *browser* — that is what "the image looks blurry" almost always means. `validateUploadResolution` rejects uploads below `MIN_SOURCE_WIDTH` (products 1000px, categories 800px, banners 1440px); `npm run images:audit` lists existing offenders. Set `IMAGE_MIN_RESOLUTION_ENFORCE=false` to warn instead of reject.
 - **`PIPELINE_VERSION` must be bumped whenever encoder settings change.** The cache key is otherwise source identity + width/format/quality only, so a settings change would keep serving derivatives from the old encoder forever. Bumping it invalidates everything; follow with `npm run images:warm`.
 - AVIF uses **4:4:4** chroma. 4:2:0 halves colour resolution and softens print edges on garments — measured 39.80 dB PSNR vs **41.43 dB** at 4:4:4 (past the ~40 dB visually-lossless line) for ~9% more bytes.
