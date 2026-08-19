@@ -161,7 +161,17 @@ class BannerController {
     }
     async delete(req, res) {
         const { id } = req.params;
+        // Read the artwork before the row goes — a banner master runs to hundreds
+        // of KB and there is no way back to the file once the record is deleted.
+        const existing = await prisma_1.prisma.banner.findUnique({
+            where: { id },
+            select: { image: true, mobileImage: true },
+        });
         await prisma_1.prisma.banner.delete({ where: { id } });
+        if (existing) {
+            await (0, upload_1.deleteUploadByUrl)(existing.image);
+            await (0, upload_1.deleteUploadByUrl)(existing.mobileImage);
+        }
         return (0, response_1.sendSuccess)(res, null, 'Banner deleted');
     }
     async reorder(req, res) {

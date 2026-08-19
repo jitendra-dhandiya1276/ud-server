@@ -217,3 +217,68 @@ export const getImageUrl = (filePath: string): string => {
 export const deleteFile = async (filePath: string): Promise<void> => {
   await fs.promises.unlink(filePath).catch(() => {});
 };
+
+/**
+ * Remove an uploaded file, and the files generated from it, given its URL.
+ *
+ * Deleting a record only ever removed the row — the bytes stayed on disk
+ * forever. The reels directory had accumulated 178 MB that nothing referenced.
+ *
+ * A stored URL is data, not a trusted path, so this refuses anything that
+ * resolves outside the upload root: `/uploads/../../etc/passwd` must not turn
+ * into an unlink. Dotted directories are skipped too, which keeps the
+ * derivative cache out of reach.
+ *
+ * Silent on missing files by design — callers delete the row either way, and a
+ * file that is already gone is the desired end state.
+ */
+export const deleteUploadByUrl = async (url?: string | null): Promise<void> => {
+  if (!url) return;
+
+  const marker = '/uploads/';
+  const at = url.indexOf(marker);
+  if (at === -1) return; // an external URL is not ours to delete
+
+  const rel = decodeURIComponent(url.slice(at + marker.length)).split('?')[0];
+  if (!rel) return;
+
+  const uploadRoot = path.resolve(config.upload.path);
+  const abs = path.resolve(uploadRoot, rel);
+  if (abs !== uploadRoot && !abs.startsWith(uploadRoot + path.sep)) {
+    logger.warn(`Refusing to delete a path outside the upload root: ${url}`);
+    return;
+  }
+  // Any dotted segment, at any depth — the derivative cache lives at
+  // `.derivatives/ab/cd.avif`, so checking only the immediate parent missed it.
+  const segments = path.relative(uploadRoot, abs).split(path.sep);
+  if (segments.some(segment => segment.startsWith('.'))) return;
+
+  const base = abs.replace(/\.[^.]+$/, '');
+  const targets = new Set<string>([
+    abs,
+    `${base}-web.mp4`,
+    `${base}-poster.jpg`,
+    `${base}-web-poster.jpg`,
+    `${base}-master.jpg`,
+  ]);
+
+  // A reel row points at the optimised rendition, so the untranscoded source
+  // sits beside it under the pre-suffix name and would otherwise be left behind
+  // — and it is the big one.
+  if (base.endsWith('-web')) {
+    const source = base.slice(0, -4);
+    for (const ext of ['.mp4', '.webm', '.mov', '.m4v']) targets.add(source + ext);
+    targets.add(`${source}-poster.jpg`);
+  }
+
+  let removed = 0;
+  for (const target of targets) {
+    try {
+      await fs.promises.unlink(target);
+      removed += 1;
+    } catch {
+      // not present — fine
+    }
+  }
+  if (removed) logger.info(`Removed ${removed} file(s) for ${path.basename(abs)}`);
+};

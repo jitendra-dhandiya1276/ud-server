@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.productService = exports.ProductService = void 0;
 const prisma_1 = require("../../../config/prisma");
+const upload_1 = require("../../../utils/upload");
 const error_middleware_1 = require("../../../middlewares/error.middleware");
 const slugify_1 = require("../../../utils/slugify");
 const colorName_1 = require("../../../utils/colorName");
@@ -394,7 +395,14 @@ class ProductService {
         }
         // Remove images by IDs if requested
         if (removeImageIds?.length) {
+            // Collect the URLs first: once the rows are gone nothing points at the
+            // files any more and they would sit on disk forever.
+            const removed = await prisma_1.prisma.productImage.findMany({
+                where: { id: { in: removeImageIds }, productId: id },
+                select: { url: true },
+            });
             await prisma_1.prisma.productImage.deleteMany({ where: { id: { in: removeImageIds }, productId: id } });
+            await Promise.all(removed.map(img => (0, upload_1.deleteUploadByUrl)(img.url)));
         }
         // Create the uploads here rather than as a nested `images.create` on the
         // product update: nested creates give no guaranteed id ordering back, and

@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../../config/prisma';
+import { deleteUploadByUrl } from '../../../utils/upload';
 import { AppError } from '../../../middlewares/error.middleware';
 import { createSlug } from '../../../utils/slugify';
 import { colorNameToHex } from '../../../utils/colorName';
@@ -427,7 +428,14 @@ export class ProductService {
 
     // Remove images by IDs if requested
     if (removeImageIds?.length) {
+      // Collect the URLs first: once the rows are gone nothing points at the
+      // files any more and they would sit on disk forever.
+      const removed = await prisma.productImage.findMany({
+        where: { id: { in: removeImageIds }, productId: id },
+        select: { url: true },
+      });
       await prisma.productImage.deleteMany({ where: { id: { in: removeImageIds }, productId: id } });
+      await Promise.all(removed.map(img => deleteUploadByUrl(img.url)));
     }
 
     // Create the uploads here rather than as a nested `images.create` on the

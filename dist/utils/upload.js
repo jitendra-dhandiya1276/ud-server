@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteFile = exports.getImageUrl = exports.optimizeImage = exports.validateUploadResolution = exports.handleUpload = exports.createUploader = exports.VIDEO_MIME_TYPES = void 0;
+exports.deleteUploadByUrl = exports.deleteFile = exports.getImageUrl = exports.optimizeImage = exports.validateUploadResolution = exports.handleUpload = exports.createUploader = exports.VIDEO_MIME_TYPES = void 0;
 const multer_1 = __importDefault(require("multer"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
@@ -187,3 +187,69 @@ const deleteFile = async (filePath) => {
     await fs_1.default.promises.unlink(filePath).catch(() => { });
 };
 exports.deleteFile = deleteFile;
+/**
+ * Remove an uploaded file, and the files generated from it, given its URL.
+ *
+ * Deleting a record only ever removed the row — the bytes stayed on disk
+ * forever. The reels directory had accumulated 178 MB that nothing referenced.
+ *
+ * A stored URL is data, not a trusted path, so this refuses anything that
+ * resolves outside the upload root: `/uploads/../../etc/passwd` must not turn
+ * into an unlink. Dotted directories are skipped too, which keeps the
+ * derivative cache out of reach.
+ *
+ * Silent on missing files by design — callers delete the row either way, and a
+ * file that is already gone is the desired end state.
+ */
+const deleteUploadByUrl = async (url) => {
+    if (!url)
+        return;
+    const marker = '/uploads/';
+    const at = url.indexOf(marker);
+    if (at === -1)
+        return; // an external URL is not ours to delete
+    const rel = decodeURIComponent(url.slice(at + marker.length)).split('?')[0];
+    if (!rel)
+        return;
+    const uploadRoot = path_1.default.resolve(env_1.config.upload.path);
+    const abs = path_1.default.resolve(uploadRoot, rel);
+    if (abs !== uploadRoot && !abs.startsWith(uploadRoot + path_1.default.sep)) {
+        logger_1.logger.warn(`Refusing to delete a path outside the upload root: ${url}`);
+        return;
+    }
+    // Any dotted segment, at any depth — the derivative cache lives at
+    // `.derivatives/ab/cd.avif`, so checking only the immediate parent missed it.
+    const segments = path_1.default.relative(uploadRoot, abs).split(path_1.default.sep);
+    if (segments.some(segment => segment.startsWith('.')))
+        return;
+    const base = abs.replace(/\.[^.]+$/, '');
+    const targets = new Set([
+        abs,
+        `${base}-web.mp4`,
+        `${base}-poster.jpg`,
+        `${base}-web-poster.jpg`,
+        `${base}-master.jpg`,
+    ]);
+    // A reel row points at the optimised rendition, so the untranscoded source
+    // sits beside it under the pre-suffix name and would otherwise be left behind
+    // — and it is the big one.
+    if (base.endsWith('-web')) {
+        const source = base.slice(0, -4);
+        for (const ext of ['.mp4', '.webm', '.mov', '.m4v'])
+            targets.add(source + ext);
+        targets.add(`${source}-poster.jpg`);
+    }
+    let removed = 0;
+    for (const target of targets) {
+        try {
+            await fs_1.default.promises.unlink(target);
+            removed += 1;
+        }
+        catch {
+            // not present — fine
+        }
+    }
+    if (removed)
+        logger_1.logger.info(`Removed ${removed} file(s) for ${path_1.default.basename(abs)}`);
+};
+exports.deleteUploadByUrl = deleteUploadByUrl;

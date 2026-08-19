@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../../../config/prisma';
 import fs from 'fs';
 import path from 'path';
-import { getImageUrl } from '../../../utils/upload';
+import { getImageUrl, deleteUploadByUrl } from '../../../utils/upload';
 import { checkVideoResolution, extractPoster, optimizeVideoForWeb } from '../../../utils/video';
 import { logger } from '../../../utils/logger';
 
@@ -175,6 +175,13 @@ export class InstagramReelsController {
       if ('error' in media && media.error) {
         return res.status(400).json({ success: false, message: media.error });
       }
+      // Capture the outgoing media so a replaced video or poster does not
+      // linger on disk unreferenced.
+      const previous = await prisma.instagramReel.findUnique({
+        where: { id },
+        select: { videoUrl: true, thumbnail: true },
+      });
+
       const reel = await prisma.instagramReel.update({
         where: { id },
         data: {
@@ -189,6 +196,14 @@ export class InstagramReelsController {
       });
       res.json({ success: true, data: reel });
 
+      // Only once the row points elsewhere.
+      if (previous?.videoUrl && reel.videoUrl !== previous.videoUrl) {
+        await deleteUploadByUrl(previous.videoUrl);
+      }
+      if (previous?.thumbnail && reel.thumbnail !== previous.thumbnail) {
+        await deleteUploadByUrl(previous.thumbnail);
+      }
+
       if (media.videoPath) {
         void finaliseReelMedia(reel.id, media.videoPath, !media.hasCustomThumb);
       }
@@ -201,7 +216,17 @@ export class InstagramReelsController {
   async delete(req: Request, res: Response) {
     try {
       const { id } = req.params;
+      // Read the media before the row goes, otherwise the only pointer to the
+      // files on disk is gone and they are orphaned for good.
+      const existing = await prisma.instagramReel.findUnique({
+        where: { id },
+        select: { videoUrl: true, thumbnail: true },
+      });
       await prisma.instagramReel.delete({ where: { id } });
+      if (existing) {
+        await deleteUploadByUrl(existing.videoUrl);
+        await deleteUploadByUrl(existing.thumbnail);
+      }
       res.json({ success: true, message: 'Reel deleted' });
     } catch (err) {
       res.status(500).json({ success: false, message: 'Failed to delete reel' });

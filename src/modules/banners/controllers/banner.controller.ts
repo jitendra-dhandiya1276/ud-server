@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { prisma } from '../../../config/prisma';
 import { sendSuccess, sendPaginated } from '../../../utils/response';
-import { getImageUrl } from '../../../utils/upload';
+import { deleteUploadByUrl, getImageUrl } from '../../../utils/upload';
 import { paginationParams } from '../../../utils/slugify';
 
 // Fixed hero banner resolution
@@ -159,7 +159,17 @@ export class BannerController {
 
   async delete(req: Request, res: Response) {
     const { id } = req.params;
+    // Read the artwork before the row goes — a banner master runs to hundreds
+    // of KB and there is no way back to the file once the record is deleted.
+    const existing = await prisma.banner.findUnique({
+      where: { id },
+      select: { image: true, mobileImage: true },
+    });
     await prisma.banner.delete({ where: { id } });
+    if (existing) {
+      await deleteUploadByUrl(existing.image);
+      await deleteUploadByUrl(existing.mobileImage);
+    }
     return sendSuccess(res, null, 'Banner deleted');
   }
 
