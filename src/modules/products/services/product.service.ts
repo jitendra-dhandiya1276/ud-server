@@ -28,22 +28,20 @@ export interface ProductFilters {
 }
 
 /**
- * Curated display order.
+ * Curated display order *within a category*.
  *
- * `Product.sortOrder` is a display PRIORITY, not an index: a higher number
- * shows first, and 0 is the neutral default every product starts at.
+ * `Product.sortOrder` is a display PRIORITY: higher shows first, 0 the neutral
+ * default. It is deliberately scoped to category-filtered listings rather than
+ * applied globally — a single number cannot express "first in Denim" and
+ * "seventh in Summer" at once, so applied catalogue-wide it just pins one
+ * product to the top of every screen, which is not a merchandising decision
+ * anyone wants to make.
  *
- * Descending is what makes that default safe. With ascending, every product an
- * admin had never touched would sit at 0 and outrank the ones they had
- * deliberately promoted, so promoting anything would mean renumbering the whole
- * catalogue. Descending means untouched products stay put, one positive number
- * lifts a product to the top, and a negative number pushes one to the bottom.
+ * Descending is what makes the default safe: with ascending, every untouched
+ * product would sit at 0 and outrank anything deliberately promoted.
  *
- * Callers pass the ordering that applies *among products of equal priority* —
- * the section's own natural order — and `createdAt` closes it out so the result
- * is never left to the database to decide. That last part is why a newly added
- * product used to land at the end of the homepage sections: they ordered by
- * `sortOrder` alone, every row held 0, and the tie fell back to insertion order.
+ * Callers pass the ordering that applies among products of equal priority, and
+ * `createdAt` closes it out so the result is never left to the database.
  */
 const byPriority = (
   ...tiebreakers: Prisma.ProductOrderByWithRelationInput[]
@@ -52,6 +50,17 @@ const byPriority = (
   ...tiebreakers,
   { createdAt: 'desc' },
 ];
+
+/**
+ * Deterministic order for every listing that is NOT scoped to a category.
+ *
+ * Ordering by a column every row shares leaves the tie to the database, which
+ * is how newly added products ended up wherever the storage engine put them.
+ */
+const stableOrder = (
+  ...primary: Prisma.ProductOrderByWithRelationInput[]
+): Prisma.ProductOrderByWithRelationInput[] => [...primary, { createdAt: 'desc' }];
+
 
 export class ProductService {
   async getProducts(filters: ProductFilters) {
@@ -115,18 +124,22 @@ export class ProductService {
       where.variants = { some: variantFilter };
     }
 
+    // Admin-set priority applies only inside a category. Browsing the whole
+    // catalogue, or searching, falls back to newest — a per-product number has
+    // no meaning across unrelated categories.
+    const inCategory = Boolean(filters.categoryId || filters.categorySlug);
+
     // An explicit shopper sort stays pure — priority must not quietly override
-    // "Price: Low to High" or the sort looks broken. Priority drives the
-    // default (curated) order, which is the one an admin is arranging.
+    // "Price: Low to High" or the sort looks broken.
     let orderBy: Prisma.ProductOrderByWithRelationInput[];
     switch (filters.sortBy) {
-      case 'price_asc':  orderBy = [{ basePrice: 'asc' },  { createdAt: 'desc' }]; break;
-      case 'price_desc': orderBy = [{ basePrice: 'desc' }, { createdAt: 'desc' }]; break;
+      case 'price_asc':  orderBy = stableOrder({ basePrice: 'asc' }); break;
+      case 'price_desc': orderBy = stableOrder({ basePrice: 'desc' }); break;
       case 'newest':     orderBy = [{ createdAt: 'desc' }]; break;
-      case 'popular':    orderBy = [{ totalSold: 'desc' }, { createdAt: 'desc' }]; break;
-      case 'rating':     orderBy = [{ avgRating: 'desc' }, { createdAt: 'desc' }]; break;
+      case 'popular':    orderBy = stableOrder({ totalSold: 'desc' }); break;
+      case 'rating':     orderBy = stableOrder({ avgRating: 'desc' }); break;
       case 'name':       orderBy = [{ name: 'asc' }]; break;
-      default:           orderBy = byPriority();
+      default:           orderBy = inCategory ? byPriority() : [{ createdAt: 'desc' }];
     }
 
     const [total, products] = await Promise.all([
@@ -183,14 +196,15 @@ export class ProductService {
     }
     if (and.length) where.AND = and;
 
-    // Defaults to the same curated order the storefront shows, so the admin list
-    // previews what shoppers get instead of using an ordering of its own.
+    // Mirrors the storefront: filtering to a category shows that category's
+    // curated order, so the admin arranging priorities sees exactly what a
+    // shopper browsing that category will see. Unfiltered, it is newest first.
     const orderBy: Prisma.ProductOrderByWithRelationInput[] =
       filters.sortBy === 'name' ? [{ name: 'asc' }] :
       filters.sortBy === 'price_asc' ? [{ basePrice: 'asc' }] :
       filters.sortBy === 'price_desc' ? [{ basePrice: 'desc' }] :
       filters.sortBy === 'newest' ? [{ createdAt: 'desc' }] :
-      byPriority();
+      filters.categoryId ? byPriority() : [{ createdAt: 'desc' }];
 
     const [total, products] = await Promise.all([
       prisma.product.count({ where }),
@@ -534,7 +548,7 @@ export class ProductService {
     return prisma.product.findMany({
       where: { isActive: true, isFeatured: true, deletedAt: null, ...gWhere } as any,
       take: limit,
-      orderBy: byPriority(),
+      orderBy: stableOrder(),
       include: {
         images: { orderBy: [{ isPrimary: 'desc' as const }, { sortOrder: 'asc' as const }], take: 1 },
         variants: { where: { isActive: true }, select: { size: true, color: true, colorHex: true } },
@@ -548,7 +562,7 @@ export class ProductService {
     return prisma.product.findMany({
       where: { isActive: true, isTrending: true, deletedAt: null, ...gWhere } as any,
       take: limit,
-      orderBy: byPriority({ totalSold: 'desc' }),
+      orderBy: stableOrder({ totalSold: 'desc' }),
       include: {
         images: { orderBy: [{ isPrimary: 'desc' as const }, { sortOrder: 'asc' as const }], take: 1 },
         variants: { where: { isActive: true }, select: { size: true, color: true, colorHex: true } },
@@ -562,7 +576,7 @@ export class ProductService {
     return prisma.product.findMany({
       where: { isActive: true, isNewArrival: true, deletedAt: null, ...gWhere } as any,
       take: limit,
-      orderBy: byPriority(),
+      orderBy: stableOrder(),
       include: {
         images: { orderBy: [{ isPrimary: 'desc' as const }, { sortOrder: 'asc' as const }], take: 1 },
         variants: { where: { isActive: true }, select: { size: true, color: true, colorHex: true } },
@@ -576,7 +590,7 @@ export class ProductService {
     return prisma.product.findMany({
       where: { isActive: true, isBestSeller: true, deletedAt: null, ...gWhere } as any,
       take: limit,
-      orderBy: byPriority({ totalSold: 'desc' }),
+      orderBy: stableOrder({ totalSold: 'desc' }),
       include: {
         images: { orderBy: [{ isPrimary: 'desc' as const }, { sortOrder: 'asc' as const }], take: 1 },
         variants: { where: { isActive: true }, select: { size: true, color: true, colorHex: true } },
@@ -597,6 +611,10 @@ export class ProductService {
         ],
       },
       take: limit,
+      // Search spans every category, so priority does not apply — but it had no
+      // ordering at all, which left results in whatever order the database
+      // returned them and made the same query look unstable between calls.
+      orderBy: [{ createdAt: 'desc' }],
       select: {
         id: true, name: true, slug: true, basePrice: true, salePrice: true,
         images: { orderBy: [{ isPrimary: 'desc' as const }, { sortOrder: 'asc' as const }], take: 1, select: { url: true } },

@@ -87,6 +87,10 @@ export class CollectionController {
         where,
         skip,
         take: l,
+        // A collection spans categories, so admin priority does not apply here.
+        // This had no ordering at all, which meant paginating could show the
+        // same product twice and skip another.
+        orderBy: [{ createdAt: 'desc' }],
         select: {
           id: true, name: true, slug: true, basePrice: true, salePrice: true, isActive: true,
           images: { where: { isPrimary: true }, take: 1, select: { url: true } },
