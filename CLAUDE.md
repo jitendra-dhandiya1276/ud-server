@@ -840,6 +840,18 @@ Base URL: `{BASE_URL}/api/v1`. **Auth legend:** 🔓 public · 🔐 authenticate
 | `lib/imageLoader.ts` | frontend | `next/image` custom loader; rewrites `/uploads/…` → `/img/…` |
 
 **Rules**
+- **The WOMEN/MEN preference lives in the `ud_gender` cookie, not localStorage.** The homepage is
+  server-rendered, so the server has to know the gender at request time; when the preference was
+  localStorage-only, SSR fetched with *no* gender filter and a reload with MEN selected left the
+  toggle on MEN while the products stayed unfiltered. `lib/genderPreference.ts` owns reading and
+  writing it (localStorage is still written for shoppers who set a preference before the cookie
+  existed). `/` reads it via `cookies()` and passes `initialGender` down; `/homepage/data` and the
+  `/products/*` list endpoints all take `?gender=`. The page is already `cache: 'no-store'` and
+  nginx does not cache HTML, so per-cookie rendering is safe — do not add HTML caching to `/`
+  without a `Vary: Cookie`.
+- **The Redux store is a module singleton**, so it cannot be seeded per SSR request without leaking
+  one visitor's state into another's render. Gender-dependent components therefore render the
+  server's `initialGender` until `gender.initialized` flips, rather than the store's WOMEN default.
 - **The hero box tracks the artwork's aspect ratio, it does not set its own height.** Banner masters
   are cropped server-side to 1440:560 (2.57:1). `HeroSlider` previously used fixed pixel heights per
   breakpoint (xs 260, sm 400, md 500); a phone viewport is far taller relative to its width than
