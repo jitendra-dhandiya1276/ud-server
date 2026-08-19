@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
+const crypto_1 = __importDefault(require("crypto"));
 const app_1 = __importDefault(require("./app"));
 const env_1 = require("./config/env");
 const prisma_1 = require("./config/prisma");
@@ -19,7 +20,11 @@ const INIT_SETTINGS = [
     { key: 'site_tagline', value: 'Express Your Unique Style', group: 'general', label: 'Tagline' },
     { key: 'site_email', value: 'uniquedressup@gmail.com', group: 'general', label: 'Support Email' },
     { key: 'site_description', value: 'Trendy & affordable fashion for every occasion. Explore kurtas, co-ords, dresses, and more.', group: 'general', label: 'Site Description' },
-    { key: 'logo_url', value: '/logo.jpg', group: 'general', label: 'Logo URL' },
+    // Trimmed, transparent wordmark (600x333). The old /logo.jpg was a 4500x4500
+    // square with ~60% white padding, which forced a 1:1 render everywhere.
+    { key: 'logo_url', value: '/logo-mark.png', group: 'general', label: 'Logo URL' },
+    // Light colourway for dark surfaces (footer).
+    { key: 'logo_url_light', value: '/logo-mark-light.png', group: 'general', label: 'Logo URL (light, for dark backgrounds)' },
     { key: 'currency', value: 'INR', group: 'general', label: 'Currency Code' },
     { key: 'currency_symbol', value: '₹', group: 'general', label: 'Currency Symbol' },
     { key: 'site_phone', value: '+91 98765 43210', group: 'contact', label: 'Phone' },
@@ -101,10 +106,19 @@ async function initDatabase() {
     // 1. Settings
     await prisma_1.prisma.setting.createMany({ data: INIT_SETTINGS, skipDuplicates: true });
     // 2. Admin user — only if no SUPER_ADMIN exists yet
+    //
+    // This block previously fell back to a hardcoded 'Admin@123'. That constant
+    // is committed to a repository, so every deployment that did not set
+    // ADMIN_PASSWORD shipped with a publicly-known super-admin credential — and
+    // production was in exactly that state until 2026-08-08. There is now no
+    // literal default: either the operator supplies one, or a random password is
+    // generated and printed once to the server log.
     const adminCount = await prisma_1.prisma.user.count({ where: { role: 'SUPER_ADMIN' } });
     if (adminCount === 0) {
         const adminEmail = process.env.ADMIN_EMAIL || 'admin@uniquedressup.com';
-        const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@123';
+        const supplied = process.env.ADMIN_PASSWORD;
+        const generated = !supplied ? crypto_1.default.randomBytes(18).toString('base64url') : null;
+        const adminPassword = supplied || generated;
         // NOTE: if the server previously started with a different ADMIN_EMAIL env var,
         // the admin may already exist with that email. Run scripts/checkAdmin.ts to fix.
         const hashed = await bcryptjs_1.default.hash(adminPassword, 12);
@@ -115,7 +129,16 @@ async function initDatabase() {
                 role: 'SUPER_ADMIN', isVerified: true,
             },
         });
-        logger_1.logger.info(`Admin created — email: ${adminEmail} (set ADMIN_PASSWORD env var to change the default)`);
+        if (generated) {
+            // Printed once, and only here. Nothing recoverable is stored, so this is
+            // the single opportunity to capture it.
+            logger_1.logger.warn(`Admin created — ${adminEmail}\n` +
+                `  Generated password (shown once, change it after first login): ${generated}\n` +
+                `  Set ADMIN_PASSWORD to choose your own instead.`);
+        }
+        else {
+            logger_1.logger.info(`Admin created — email: ${adminEmail} (password from ADMIN_PASSWORD)`);
+        }
     }
     // 3. Categories (unique by slug)
     await prisma_1.prisma.category.createMany({

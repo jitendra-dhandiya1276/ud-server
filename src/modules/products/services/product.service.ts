@@ -182,7 +182,7 @@ export class ProductService {
     const product = await prisma.product.findFirst({
       where: { slug, isActive: true, deletedAt: null },
       include: {
-        images: { orderBy: { sortOrder: 'asc' } },
+        images: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
         category: { select: { id: true, name: true, slug: true } },
         variants: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } },
         tags: true,
@@ -251,7 +251,7 @@ export class ProductService {
     const product = await prisma.product.findFirst({
       where: { id, deletedAt: null },
       include: {
-        images: { orderBy: { sortOrder: 'asc' } },
+        images: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
         category: { select: { id: true, name: true, slug: true } },
         variants: { orderBy: [{ color: 'asc' }, { sortOrder: 'asc' }] },
         tags: true,
@@ -330,7 +330,7 @@ export class ProductService {
     const product = await prisma.product.findFirst({ where: { id, deletedAt: null } });
     if (!product) throw new AppError('Product not found', 404);
 
-    const { newImages, tags, collectionIds, removeImageIds, ...productData } = data;
+    const { newImages, tags, collectionIds, removeImageIds, imageOrder, ...productData } = data;
 
     // Coerce booleans that come as strings from FormData
     const boolFields = ['isActive', 'isFeatured', 'isTrending', 'isNewArrival', 'isBestSeller', 'trackInventory'];
@@ -358,6 +358,23 @@ export class ProductService {
       await prisma.productImage.deleteMany({ where: { id: { in: removeImageIds }, productId: id } });
     }
 
+    // Create the uploads here rather than as a nested `images.create` on the
+    // product update: nested creates give no guaranteed id ordering back, and
+    // resolving a `new:<n>` token in imageOrder needs index → id to be exact.
+    const createdImageIds: string[] = [];
+    for (const img of (newImages ?? [])) {
+      const created = await prisma.productImage.create({
+        data: {
+          productId: id,
+          url: img.url,
+          altText: img.altText || '',
+          sortOrder: 0,      // real position assigned by applyImageOrder below
+          isPrimary: false,
+        },
+      });
+      createdImageIds.push(created.id);
+    }
+
     // Replace tags if provided
     const parsedTags = tags ? (typeof tags === 'string' ? JSON.parse(tags) : tags) : null;
 
@@ -371,26 +388,77 @@ export class ProductService {
             create: parsedTags.map((tag: string) => ({ tag })),
           },
         }),
-        ...(newImages?.length && {
-          images: {
-            create: newImages.map((img: any) => img),
-          },
-        }),
       },
-      include: { images: { orderBy: { sortOrder: 'asc' } }, variants: true, tags: true, badges: true },
+      include: { images: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] }, variants: true, tags: true, badges: true },
     });
 
-    // Ensure exactly one primary image:
-    // If multiple are marked primary (e.g. old + new upload both have isPrimary:true), keep only the first by sortOrder
-    const allPrimaries = await prisma.productImage.findMany({ where: { productId: id, isPrimary: true }, orderBy: { sortOrder: 'asc' } });
-    if (allPrimaries.length > 1) {
-      await prisma.productImage.updateMany({ where: { productId: id, isPrimary: true, id: { not: allPrimaries[0].id } }, data: { isPrimary: false } });
-    } else if (allPrimaries.length === 0) {
-      const first = await prisma.productImage.findFirst({ where: { productId: id }, orderBy: { sortOrder: 'asc' } });
-      if (first) await prisma.productImage.update({ where: { id: first.id }, data: { isPrimary: true } });
-    }
+    // Position is the single source of truth; isPrimary is derived from it.
+    await this.applyImageOrder(id, imageOrder, createdImageIds);
+    updated.images = await prisma.productImage.findMany({
+      where: { productId: id },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
 
     return updated;
+  }
+
+  /**
+   * Renumber a product's images to 0..n-1 and mark position 0 as the cover.
+   *
+   * `sortOrder` is the single source of truth for gallery order, and
+   * `isPrimary` is derived from it, so the grid thumbnail can never disagree
+   * with the first image on the detail page.
+   *
+   * `order` is the ordered token list the admin form sends: either an existing
+   * image id, or `new:<n>` for the nth file uploaded in the same request
+   * (which is how a just-picked file can be dropped into position 1 without a
+   * second save). Tokens that no longer resolve — a concurrent edit deleted
+   * the image, say — are skipped, and any image the client did not mention is
+   * appended in its current order rather than dropped.
+   *
+   * With no `order`, this still runs as a normalisation pass: it closes gaps
+   * and breaks sortOrder ties deterministically by creation time.
+   */
+  private async applyImageOrder(productId: string, order?: string[], createdIds: string[] = []) {
+    const existing = await prisma.productImage.findMany({
+      where: { productId },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+    if (!existing.length) return;
+
+    const validIds = new Set(existing.map(img => img.id));
+    const ordered: string[] = [];
+    const seen = new Set<string>();
+
+    if (Array.isArray(order) && order.length) {
+      for (const token of order) {
+        const resolved = typeof token === 'string' && token.startsWith('new:')
+          ? createdIds[Number(token.slice(4))]
+          : token;
+        if (!resolved || !validIds.has(resolved) || seen.has(resolved)) continue;
+        seen.add(resolved);
+        ordered.push(resolved);
+      }
+    }
+    // Anything unmentioned keeps its relative order at the end.
+    for (const img of existing) {
+      if (!seen.has(img.id)) { seen.add(img.id); ordered.push(img.id); }
+    }
+
+    const needsWrite = ordered.some((imgId, idx) => {
+      const img = existing.find(e => e.id === imgId)!;
+      return img.sortOrder !== idx || img.isPrimary !== (idx === 0);
+    });
+    if (!needsWrite) return;
+
+    await prisma.$transaction(
+      ordered.map((imgId, idx) =>
+        prisma.productImage.update({
+          where: { id: imgId },
+          data: { sortOrder: idx, isPrimary: idx === 0 },
+        })
+      )
+    );
   }
 
   async deleteProduct(id: string) {

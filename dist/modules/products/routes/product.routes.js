@@ -6,6 +6,9 @@ const auth_middleware_1 = require("../../../middlewares/auth.middleware");
 const upload_1 = require("../../../utils/upload");
 const router = (0, express_1.Router)();
 const upload = (0, upload_1.createUploader)('products');
+// Rejects sources too small for the grid/detail views, which the pipeline
+// cannot compensate for because it never upscales.
+const checkResolution = (0, upload_1.validateUploadResolution)('products');
 // Public routes
 router.get('/', product_controller_1.productController.getProducts.bind(product_controller_1.productController));
 router.get('/featured', product_controller_1.productController.getFeaturedProducts.bind(product_controller_1.productController));
@@ -15,9 +18,11 @@ router.get('/best-sellers', product_controller_1.productController.getBestSeller
 router.get('/search', product_controller_1.productController.search.bind(product_controller_1.productController));
 router.get('/:slug', product_controller_1.productController.getProductBySlug.bind(product_controller_1.productController));
 // Admin routes
+// MUST precede '/admin/:id', otherwise "list" is captured as an id.
+router.get('/admin/list', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, product_controller_1.productController.getAdminProducts.bind(product_controller_1.productController));
 router.get('/admin/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, product_controller_1.productController.getProductById.bind(product_controller_1.productController));
-router.post('/', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, upload.array('images', 10), product_controller_1.productController.createProduct.bind(product_controller_1.productController));
-router.put('/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, upload.array('images', 10), product_controller_1.productController.updateProduct.bind(product_controller_1.productController));
+router.post('/', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, upload.array('images', 10), checkResolution, product_controller_1.productController.createProduct.bind(product_controller_1.productController));
+router.put('/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, upload.array('images', 10), checkResolution, product_controller_1.productController.updateProduct.bind(product_controller_1.productController));
 router.delete('/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, product_controller_1.productController.deleteProduct.bind(product_controller_1.productController));
 // Variant routes
 router.get('/:id/variants', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, product_controller_1.productController.getVariants.bind(product_controller_1.productController));

@@ -4,6 +4,7 @@ exports.productService = exports.ProductService = void 0;
 const prisma_1 = require("../../../config/prisma");
 const error_middleware_1 = require("../../../middlewares/error.middleware");
 const slugify_1 = require("../../../utils/slugify");
+const colorName_1 = require("../../../utils/colorName");
 const slugify_2 = require("../../../utils/slugify");
 class ProductService {
     async getProducts(filters) {
@@ -110,11 +111,66 @@ class ProductService {
         ]);
         return { products, total, page, limit };
     }
+    /**
+     * Admin catalogue listing — every product regardless of isActive.
+     *
+     * The storefront listing hard-filters `isActive: true`, which is correct for
+     * shoppers but made the admin screen unusable: the admin page was calling the
+     * same public endpoint, so a deactivated product vanished from the catalogue
+     * entirely and could never be found again to re-publish it. Imported drafts
+     * were invisible for the same reason.
+     *
+     * Soft-deleted products stay excluded — those are deleted, not hidden.
+     */
+    async getAdminProducts(filters) {
+        const { page, limit, skip } = (0, slugify_2.paginationParams)(filters.page, filters.limit);
+        const where = { deletedAt: null };
+        const and = [];
+        if (filters.status === 'active')
+            where.isActive = true;
+        if (filters.status === 'draft')
+            where.isActive = false;
+        if (filters.search) {
+            and.push({
+                OR: [
+                    { name: { contains: filters.search } },
+                    { sku: { contains: filters.search } },
+                    { brand: { contains: filters.search } },
+                ],
+            });
+        }
+        if (filters.categoryId)
+            where.categoryId = filters.categoryId;
+        if (filters.gender && filters.gender !== 'ALL') {
+            where.gender = filters.gender.toUpperCase();
+        }
+        if (and.length)
+            where.AND = and;
+        const orderBy = filters.sortBy === 'name' ? { name: 'asc' } :
+            filters.sortBy === 'price_asc' ? { basePrice: 'asc' } :
+                filters.sortBy === 'price_desc' ? { basePrice: 'desc' } :
+                    { createdAt: 'desc' };
+        const [total, products] = await Promise.all([
+            prisma_1.prisma.product.count({ where }),
+            prisma_1.prisma.product.findMany({
+                where,
+                orderBy,
+                skip,
+                take: limit,
+                include: {
+                    images: { orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }], take: 1 },
+                    category: { select: { id: true, name: true, slug: true } },
+                    _count: { select: { variants: true } },
+                },
+            }),
+        ]);
+        return { products, total, page, limit };
+    }
     async getProductBySlug(slug) {
         const product = await prisma_1.prisma.product.findFirst({
             where: { slug, isActive: true, deletedAt: null },
             include: {
-                images: { orderBy: { sortOrder: 'asc' } },
+                images: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
                 category: { select: { id: true, name: true, slug: true } },
                 variants: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } },
                 tags: true,
@@ -171,7 +227,7 @@ class ProductService {
         const product = await prisma_1.prisma.product.findFirst({
             where: { id, deletedAt: null },
             include: {
-                images: { orderBy: { sortOrder: 'asc' } },
+                images: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
                 category: { select: { id: true, name: true, slug: true } },
                 variants: { orderBy: [{ color: 'asc' }, { sortOrder: 'asc' }] },
                 tags: true,
@@ -201,7 +257,9 @@ class ProductService {
             data: {
                 productId,
                 color: data.color || '',
-                colorHex: data.colorHex || '#000000',
+                // The admin types a colour NAME now; the swatch is derived from it so
+                // storefront rendering is unchanged. An explicit hex still wins.
+                colorHex: data.colorHex || (0, colorName_1.colorNameToHex)(data.color) || '#CCCCCC',
                 size: data.size || '',
                 sku: data.sku || null,
                 price: data.price !== undefined && data.price !== '' ? Number(data.price) : null,
@@ -217,8 +275,14 @@ class ProductService {
         if (!variant)
             throw new error_middleware_1.AppError('Variant not found', 404);
         const updates = {};
-        if (data.color !== undefined)
+        if (data.color !== undefined) {
             updates.color = data.color;
+            // Renaming the colour should move the swatch with it, unless a hex was
+            // sent explicitly in the same request.
+            if (data.colorHex === undefined) {
+                updates.colorHex = (0, colorName_1.colorNameToHex)(data.color) || '#CCCCCC';
+            }
+        }
         if (data.colorHex !== undefined)
             updates.colorHex = data.colorHex;
         if (data.size !== undefined)
@@ -247,7 +311,7 @@ class ProductService {
         const product = await prisma_1.prisma.product.findFirst({ where: { id, deletedAt: null } });
         if (!product)
             throw new error_middleware_1.AppError('Product not found', 404);
-        const { newImages, tags, collectionIds, removeImageIds, ...productData } = data;
+        const { newImages, tags, collectionIds, removeImageIds, imageOrder, ...productData } = data;
         // Coerce booleans that come as strings from FormData
         const boolFields = ['isActive', 'isFeatured', 'isTrending', 'isNewArrival', 'isBestSeller', 'trackInventory'];
         for (const f of boolFields) {
@@ -273,6 +337,22 @@ class ProductService {
         if (removeImageIds?.length) {
             await prisma_1.prisma.productImage.deleteMany({ where: { id: { in: removeImageIds }, productId: id } });
         }
+        // Create the uploads here rather than as a nested `images.create` on the
+        // product update: nested creates give no guaranteed id ordering back, and
+        // resolving a `new:<n>` token in imageOrder needs index → id to be exact.
+        const createdImageIds = [];
+        for (const img of (newImages ?? [])) {
+            const created = await prisma_1.prisma.productImage.create({
+                data: {
+                    productId: id,
+                    url: img.url,
+                    altText: img.altText || '',
+                    sortOrder: 0, // real position assigned by applyImageOrder below
+                    isPrimary: false,
+                },
+            });
+            createdImageIds.push(created.id);
+        }
         // Replace tags if provided
         const parsedTags = tags ? (typeof tags === 'string' ? JSON.parse(tags) : tags) : null;
         const updated = await prisma_1.prisma.product.update({
@@ -285,26 +365,72 @@ class ProductService {
                         create: parsedTags.map((tag) => ({ tag })),
                     },
                 }),
-                ...(newImages?.length && {
-                    images: {
-                        create: newImages.map((img) => img),
-                    },
-                }),
             },
-            include: { images: { orderBy: { sortOrder: 'asc' } }, variants: true, tags: true, badges: true },
+            include: { images: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] }, variants: true, tags: true, badges: true },
         });
-        // Ensure exactly one primary image:
-        // If multiple are marked primary (e.g. old + new upload both have isPrimary:true), keep only the first by sortOrder
-        const allPrimaries = await prisma_1.prisma.productImage.findMany({ where: { productId: id, isPrimary: true }, orderBy: { sortOrder: 'asc' } });
-        if (allPrimaries.length > 1) {
-            await prisma_1.prisma.productImage.updateMany({ where: { productId: id, isPrimary: true, id: { not: allPrimaries[0].id } }, data: { isPrimary: false } });
-        }
-        else if (allPrimaries.length === 0) {
-            const first = await prisma_1.prisma.productImage.findFirst({ where: { productId: id }, orderBy: { sortOrder: 'asc' } });
-            if (first)
-                await prisma_1.prisma.productImage.update({ where: { id: first.id }, data: { isPrimary: true } });
-        }
+        // Position is the single source of truth; isPrimary is derived from it.
+        await this.applyImageOrder(id, imageOrder, createdImageIds);
+        updated.images = await prisma_1.prisma.productImage.findMany({
+            where: { productId: id },
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        });
         return updated;
+    }
+    /**
+     * Renumber a product's images to 0..n-1 and mark position 0 as the cover.
+     *
+     * `sortOrder` is the single source of truth for gallery order, and
+     * `isPrimary` is derived from it, so the grid thumbnail can never disagree
+     * with the first image on the detail page.
+     *
+     * `order` is the ordered token list the admin form sends: either an existing
+     * image id, or `new:<n>` for the nth file uploaded in the same request
+     * (which is how a just-picked file can be dropped into position 1 without a
+     * second save). Tokens that no longer resolve — a concurrent edit deleted
+     * the image, say — are skipped, and any image the client did not mention is
+     * appended in its current order rather than dropped.
+     *
+     * With no `order`, this still runs as a normalisation pass: it closes gaps
+     * and breaks sortOrder ties deterministically by creation time.
+     */
+    async applyImageOrder(productId, order, createdIds = []) {
+        const existing = await prisma_1.prisma.productImage.findMany({
+            where: { productId },
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        });
+        if (!existing.length)
+            return;
+        const validIds = new Set(existing.map(img => img.id));
+        const ordered = [];
+        const seen = new Set();
+        if (Array.isArray(order) && order.length) {
+            for (const token of order) {
+                const resolved = typeof token === 'string' && token.startsWith('new:')
+                    ? createdIds[Number(token.slice(4))]
+                    : token;
+                if (!resolved || !validIds.has(resolved) || seen.has(resolved))
+                    continue;
+                seen.add(resolved);
+                ordered.push(resolved);
+            }
+        }
+        // Anything unmentioned keeps its relative order at the end.
+        for (const img of existing) {
+            if (!seen.has(img.id)) {
+                seen.add(img.id);
+                ordered.push(img.id);
+            }
+        }
+        const needsWrite = ordered.some((imgId, idx) => {
+            const img = existing.find(e => e.id === imgId);
+            return img.sortOrder !== idx || img.isPrimary !== (idx === 0);
+        });
+        if (!needsWrite)
+            return;
+        await prisma_1.prisma.$transaction(ordered.map((imgId, idx) => prisma_1.prisma.productImage.update({
+            where: { id: imgId },
+            data: { sortOrder: idx, isPrimary: idx === 0 },
+        })));
     }
     async deleteProduct(id) {
         const product = await prisma_1.prisma.product.findFirst({ where: { id, deletedAt: null } });

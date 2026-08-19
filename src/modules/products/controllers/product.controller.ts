@@ -176,18 +176,22 @@ export class ProductController {
   async updateProduct(req: Request, res: Response) {
     const { id } = req.params;
     const files = req.files as Express.Multer.File[] | undefined;
-    const newImages = files?.map((file, index) => ({
+    // Position and cover are assigned by the service from imageOrder, so the
+    // upload itself no longer guesses at either.
+    const newImages = files?.map((file) => ({
       url: getImageUrl(file.path),
       altText: req.body.name || '',
-      isPrimary: index === 0,   // first upload is tentatively primary; service auto-demotes if one already exists
-      sortOrder: index,
     }));
 
     const removeImageIds = req.body.removeImageIds
       ? (typeof req.body.removeImageIds === 'string' ? JSON.parse(req.body.removeImageIds) : req.body.removeImageIds)
       : [];
 
-    const body = sanitizeProductBody({ ...req.body, newImages, removeImageIds });
+    // Ordered token list from the admin drag UI: existing image ids, plus
+    // `new:<n>` for the nth file in this same upload.
+    const imageOrder = parseArray(req.body.imageOrder);
+
+    const body = sanitizeProductBody({ ...req.body, newImages, removeImageIds, imageOrder });
     const product = await productService.updateProduct(id, body);
     return sendSuccess(res, product, 'Product updated');
   }

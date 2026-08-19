@@ -4,6 +4,7 @@ exports.productController = exports.ProductController = void 0;
 const product_service_1 = require("../services/product.service");
 const response_1 = require("../../../utils/response");
 const upload_1 = require("../../../utils/upload");
+const colorName_1 = require("../../../utils/colorName");
 const parseArray = (val) => {
     if (!val)
         return undefined;
@@ -68,7 +69,9 @@ const sanitizeProductBody = (body) => {
             if (Array.isArray(parsed)) {
                 b.variantsData = parsed.flatMap((v) => (v.sizes || []).map((s) => ({
                     color: v.color || undefined,
-                    colorHex: v.colorHex || undefined,
+                    // Admins type a colour name; derive the swatch here so the bulk
+                    // create path matches the single-variant path.
+                    colorHex: v.colorHex || (0, colorName_1.colorNameToHex)(v.color) || undefined,
                     size: s.size || undefined,
                     stockQuantity: s.stock ? Number(s.stock) : 0,
                     price: s.price ? Number(s.price) : undefined,
@@ -80,7 +83,47 @@ const sanitizeProductBody = (body) => {
     }
     return b;
 };
+/**
+ * Guarantee a sensible product-level stock figure on create.
+ *
+ * Order validation checks `Product.stockQuantity` — NOT the sum of variant
+ * stock (see OrderService.createOrder). A create request that omits the field
+ * therefore lands on the Prisma default of 0 and the product is unbuyable
+ * ("Insufficient stock") no matter how much variant stock was entered
+ * alongside it. That is exactly what happened to every product added through
+ * the admin form, which had no stock input at all.
+ *
+ * When the caller does not state a figure, fall back to the total across the
+ * variants it did supply. An explicit 0 is still honoured — that is a
+ * deliberate "out of stock".
+ */
+const withDerivedStock = (b) => {
+    const provided = b.stockQuantity;
+    const isMissing = provided === undefined || provided === null || provided === '' || Number.isNaN(provided);
+    if (!isMissing)
+        return b;
+    const total = Array.isArray(b.variantsData)
+        ? b.variantsData.reduce((sum, v) => sum + (Number(v.stockQuantity) || 0), 0)
+        : 0;
+    return { ...b, stockQuantity: total };
+};
 class ProductController {
+    /**
+     * Admin catalogue listing — includes drafts, which the public listing hides.
+     */
+    async getAdminProducts(req, res) {
+        const { page, limit, search, categoryId, gender, sortBy, status } = req.query;
+        const result = await product_service_1.productService.getAdminProducts({
+            page: Number(page) || 1,
+            limit: Number(limit) || 20,
+            search,
+            categoryId,
+            gender,
+            sortBy: sortBy,
+            status: status === 'active' || status === 'draft' ? status : undefined,
+        });
+        return (0, response_1.sendPaginated)(res, result.products, result.total, result.page, result.limit);
+    }
     async getProducts(req, res) {
         const { page, limit, search, categoryId, categorySlug, collectionSlug, minPrice, maxPrice, sizes, colors, brands, isFeatured, isTrending, isNewArrival, isBestSeller, inStock, rating, sortBy, gender, } = req.query;
         const parseBool = (v) => v === 'true' ? true : v === 'false' ? false : undefined;
@@ -115,7 +158,7 @@ class ProductController {
             isPrimary: index === 0,
             sortOrder: index,
         }));
-        const body = sanitizeProductBody({ ...req.body, images });
+        const body = withDerivedStock(sanitizeProductBody({ ...req.body, images }));
         const product = await product_service_1.productService.createProduct(body);
         return (0, response_1.sendSuccess)(res, product, 'Product created', 201);
     }
@@ -127,16 +170,19 @@ class ProductController {
     async updateProduct(req, res) {
         const { id } = req.params;
         const files = req.files;
-        const newImages = files?.map((file, index) => ({
+        // Position and cover are assigned by the service from imageOrder, so the
+        // upload itself no longer guesses at either.
+        const newImages = files?.map((file) => ({
             url: (0, upload_1.getImageUrl)(file.path),
             altText: req.body.name || '',
-            isPrimary: index === 0, // first upload is tentatively primary; service auto-demotes if one already exists
-            sortOrder: index,
         }));
         const removeImageIds = req.body.removeImageIds
             ? (typeof req.body.removeImageIds === 'string' ? JSON.parse(req.body.removeImageIds) : req.body.removeImageIds)
             : [];
-        const body = sanitizeProductBody({ ...req.body, newImages, removeImageIds });
+        // Ordered token list from the admin drag UI: existing image ids, plus
+        // `new:<n>` for the nth file in this same upload.
+        const imageOrder = parseArray(req.body.imageOrder);
+        const body = sanitizeProductBody({ ...req.body, newImages, removeImageIds, imageOrder });
         const product = await product_service_1.productService.updateProduct(id, body);
         return (0, response_1.sendSuccess)(res, product, 'Product updated');
     }

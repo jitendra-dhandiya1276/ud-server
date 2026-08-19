@@ -38,6 +38,8 @@ const settings_routes_1 = __importDefault(require("./modules/settings/routes/set
 const seo_routes_1 = __importDefault(require("./modules/seo/routes/seo.routes"));
 const media_routes_1 = __importDefault(require("./modules/media/routes/media.routes"));
 const store_routes_1 = __importDefault(require("./modules/stores/routes/store.routes"));
+const instagram_reels_routes_1 = __importDefault(require("./modules/instagram-reels/routes/instagram-reels.routes"));
+const image_routes_1 = __importDefault(require("./modules/images/routes/image.routes"));
 const app = (0, express_1.default)();
 // Trust proxy (for deployment behind Nginx)
 app.set('trust proxy', 1);
@@ -46,9 +48,36 @@ app.use((0, helmet_1.default)({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
 // CORS — always include local dev origins alongside configured production URLs
+//
+// `www.` is derived automatically from every configured origin. Without it,
+// visitors who land on the www host fail every credentialed request: the logs
+// showed a steady stream of `OPTIONS /api/v1/cart -> 500` from
+// www.theuniquedressup.com, i.e. real customers unable to use their cart
+// purely because the apex domain was the only origin registered.
+const withWwwVariant = (url) => {
+    if (!url)
+        return [];
+    try {
+        const parsed = new URL(url);
+        const host = parsed.host;
+        const sibling = host.startsWith('www.')
+            ? host.slice(4)
+            : `www.${host}`;
+        return [`${parsed.protocol}//${host}`, `${parsed.protocol}//${sibling}`];
+    }
+    catch {
+        return [url]; // not a parseable URL — keep the literal value
+    }
+};
 const ALLOWED_ORIGINS = [
-    env_1.config.frontendUrl,
-    env_1.config.adminUrl,
+    ...withWwwVariant(env_1.config.frontendUrl),
+    ...withWwwVariant(env_1.config.adminUrl),
+    // Comma-separated escape hatch for extra origins (staging, preview builds)
+    // without needing a code change.
+    ...(process.env.CORS_EXTRA_ORIGINS || '')
+        .split(',')
+        .map(o => o.trim())
+        .filter(Boolean),
     'http://localhost:3000',
     'http://localhost:3001',
     'http://127.0.0.1:3000',
@@ -85,8 +114,11 @@ if (env_1.config.isProd) {
     app.use('/api/v1/auth/login', authLimiter);
     app.use('/api/v1/auth/register', authLimiter);
 }
-// Body parsing
-app.use(express_1.default.json({ limit: '10mb' }));
+// Body parsing — `verify` saves raw buffer for Cashfree webhook signature verification
+app.use(express_1.default.json({
+    limit: '10mb',
+    verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
 app.use(express_1.default.urlencoded({ extended: true, limit: '10mb' }));
 app.use((0, cookie_parser_1.default)());
 // XSS protection
@@ -99,12 +131,25 @@ if (env_1.config.isDev) {
         stream: { write: (msg) => logger_1.logger.http(msg.trim()) },
     }));
 }
-// Static file serving for uploads
+// ── Image delivery ───────────────────────────────────────────────────────────
+// Resized/re-encoded derivatives generated on demand and cached to disk.
+// This is what the storefront renders; /uploads below keeps serving the
+// untouched originals for admin previews and direct links.
+// Mounted before the /uploads static handler so it is never shadowed by it.
+app.use('/img', image_routes_1.default);
+// Static file serving for uploads (ORIGINALS, at full quality).
+// Filenames are UUIDs and therefore content-addressed in practice: a given
+// name never changes meaning, so these can be cached indefinitely. The old
+// 1-day max-age forced every repeat visitor into a revalidation round-trip.
 app.use('/uploads', express_1.default.static(path_1.default.resolve(env_1.config.upload.path), {
-    maxAge: '1d',
+    maxAge: '1y',
     etag: true,
+    immutable: true,
+    // The derivative cache lives under the uploads volume; never expose it.
+    dotfiles: 'deny',
     setHeaders: (res) => {
-        res.setHeader('Cache-Control', 'public, max-age=86400');
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        res.setHeader('Timing-Allow-Origin', '*');
     },
 }));
 // Health check
@@ -132,6 +177,7 @@ app.use(`${v1}/settings`, settings_routes_1.default);
 app.use(`${v1}/seo`, seo_routes_1.default);
 app.use(`${v1}/media`, media_routes_1.default);
 app.use(`${v1}/stores`, store_routes_1.default);
+app.use(`${v1}/instagram-reels`, instagram_reels_routes_1.default);
 // 404 & error handler
 app.use(error_middleware_1.notFound);
 app.use(error_middleware_1.errorHandler);
