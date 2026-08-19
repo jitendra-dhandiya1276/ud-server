@@ -460,6 +460,17 @@ In development only, the error handler also appends `stack`.
 - Guest identity travels in the `x-session-id` header (allow-listed in CORS).
 - File uploads are `multipart/form-data` via `createUploader(folder, maxBytes?)`.
 - Reorder endpoints take `{ items: [{ id, sortOrder }] }` and run inside `prisma.$transaction`.
+- **Product image order is the exception to that shape.** `PUT /products/:id` takes an ordered
+  `imageOrder` token list alongside the upload, because a reorder can involve files that have no id
+  yet. Tokens are either an existing `ProductImage.id` or `new:<n>` — the nth file appended to
+  `images` in the *same* request. `ProductImage.sortOrder` is the single source of truth and
+  `isPrimary` is derived from it (position 0), so the listing thumbnail (`take: 1`) can never
+  disagree with the first image in the detail gallery. `applyImageOrder()` renumbers to 0..n-1 on
+  every update; with no `imageOrder` it still runs as a normalisation pass, closing gaps and
+  breaking ties by `createdAt`. Unresolvable tokens are skipped and unmentioned images appended, so
+  a concurrent edit degrades to a reorder rather than dropping images. Admin UI is
+  `components/admin/SortableImageGrid.tsx` (dnd-kit), shared by the add and edit product forms;
+  order is submitted with the form, not auto-saved.
 
 ---
 
