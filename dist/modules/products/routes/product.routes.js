@@ -21,6 +21,8 @@ router.get('/:slug', product_controller_1.productController.getProductBySlug.bin
 // MUST precede '/admin/:id', otherwise "list" is captured as an id.
 router.get('/admin/list', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, product_controller_1.productController.getAdminProducts.bind(product_controller_1.productController));
 router.get('/admin/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, product_controller_1.productController.getProductById.bind(product_controller_1.productController));
+// MUST precede '/:id' routes so "positions" is not captured as an id.
+router.patch('/positions', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, product_controller_1.productController.updatePositions.bind(product_controller_1.productController));
 router.post('/', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, upload.array('images', 10), checkResolution, product_controller_1.productController.createProduct.bind(product_controller_1.productController));
 router.put('/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, upload.array('images', 10), checkResolution, product_controller_1.productController.updateProduct.bind(product_controller_1.productController));
 router.delete('/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, product_controller_1.productController.deleteProduct.bind(product_controller_1.productController));

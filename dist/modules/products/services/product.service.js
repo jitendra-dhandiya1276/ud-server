@@ -6,6 +6,29 @@ const error_middleware_1 = require("../../../middlewares/error.middleware");
 const slugify_1 = require("../../../utils/slugify");
 const colorName_1 = require("../../../utils/colorName");
 const slugify_2 = require("../../../utils/slugify");
+/**
+ * Curated display order.
+ *
+ * `Product.sortOrder` is a display PRIORITY, not an index: a higher number
+ * shows first, and 0 is the neutral default every product starts at.
+ *
+ * Descending is what makes that default safe. With ascending, every product an
+ * admin had never touched would sit at 0 and outrank the ones they had
+ * deliberately promoted, so promoting anything would mean renumbering the whole
+ * catalogue. Descending means untouched products stay put, one positive number
+ * lifts a product to the top, and a negative number pushes one to the bottom.
+ *
+ * Callers pass the ordering that applies *among products of equal priority* —
+ * the section's own natural order — and `createdAt` closes it out so the result
+ * is never left to the database to decide. That last part is why a newly added
+ * product used to land at the end of the homepage sections: they ordered by
+ * `sortOrder` alone, every row held 0, and the tie fell back to insertion order.
+ */
+const byPriority = (...tiebreakers) => [
+    { sortOrder: 'desc' },
+    ...tiebreakers,
+    { createdAt: 'desc' },
+];
 class ProductService {
     async getProducts(filters) {
         const { page, limit, skip } = (0, slugify_2.paginationParams)(filters.page, filters.limit);
@@ -72,27 +95,30 @@ class ProductService {
                 variantFilter.color = { in: filters.colors };
             where.variants = { some: variantFilter };
         }
-        const orderBy = {};
+        // An explicit shopper sort stays pure — priority must not quietly override
+        // "Price: Low to High" or the sort looks broken. Priority drives the
+        // default (curated) order, which is the one an admin is arranging.
+        let orderBy;
         switch (filters.sortBy) {
             case 'price_asc':
-                orderBy.basePrice = 'asc';
+                orderBy = [{ basePrice: 'asc' }, { createdAt: 'desc' }];
                 break;
             case 'price_desc':
-                orderBy.basePrice = 'desc';
+                orderBy = [{ basePrice: 'desc' }, { createdAt: 'desc' }];
                 break;
             case 'newest':
-                orderBy.createdAt = 'desc';
+                orderBy = [{ createdAt: 'desc' }];
                 break;
             case 'popular':
-                orderBy.totalSold = 'desc';
+                orderBy = [{ totalSold: 'desc' }, { createdAt: 'desc' }];
                 break;
             case 'rating':
-                orderBy.avgRating = 'desc';
+                orderBy = [{ avgRating: 'desc' }, { createdAt: 'desc' }];
                 break;
             case 'name':
-                orderBy.name = 'asc';
+                orderBy = [{ name: 'asc' }];
                 break;
-            default: orderBy.createdAt = 'desc';
+            default: orderBy = byPriority();
         }
         const [total, products] = await Promise.all([
             prisma_1.prisma.product.count({ where }),
@@ -146,10 +172,13 @@ class ProductService {
         }
         if (and.length)
             where.AND = and;
-        const orderBy = filters.sortBy === 'name' ? { name: 'asc' } :
-            filters.sortBy === 'price_asc' ? { basePrice: 'asc' } :
-                filters.sortBy === 'price_desc' ? { basePrice: 'desc' } :
-                    { createdAt: 'desc' };
+        // Defaults to the same curated order the storefront shows, so the admin list
+        // previews what shoppers get instead of using an ordering of its own.
+        const orderBy = filters.sortBy === 'name' ? [{ name: 'asc' }] :
+            filters.sortBy === 'price_asc' ? [{ basePrice: 'asc' }] :
+                filters.sortBy === 'price_desc' ? [{ basePrice: 'desc' }] :
+                    filters.sortBy === 'newest' ? [{ createdAt: 'desc' }] :
+                        byPriority();
         const [total, products] = await Promise.all([
             prisma_1.prisma.product.count({ where }),
             prisma_1.prisma.product.findMany({
@@ -301,6 +330,27 @@ class ProductService {
             updates.sortOrder = Number(data.sortOrder);
         return prisma_1.prisma.productVariant.update({ where: { id: variantId }, data: updates });
     }
+    /**
+     * Bulk-set display priorities.
+     *
+     * Separate from updateProduct so the admin list can renumber several rows in
+     * one request without pushing each product through the full update path
+     * (image ordering, tag replacement, slug regeneration).
+     */
+    async updatePositions(items) {
+        const clean = items
+            .filter(i => i && typeof i.id === 'string' && Number.isFinite(Number(i.sortOrder)))
+            .map(i => ({ id: i.id, sortOrder: Math.trunc(Number(i.sortOrder)) }));
+        if (!clean.length)
+            return 0;
+        await prisma_1.prisma.$transaction(clean.map(i => prisma_1.prisma.product.updateMany({
+            // updateMany, not update: a deleted product must be skipped rather
+            // than fail the whole batch.
+            where: { id: i.id, deletedAt: null },
+            data: { sortOrder: i.sortOrder },
+        })));
+        return clean.length;
+    }
     async deleteVariant(productId, variantId) {
         const variant = await prisma_1.prisma.productVariant.findFirst({ where: { id: variantId, productId } });
         if (!variant)
@@ -446,7 +496,7 @@ class ProductService {
         return prisma_1.prisma.product.findMany({
             where: { isActive: true, isFeatured: true, deletedAt: null, ...gWhere },
             take: limit,
-            orderBy: { sortOrder: 'asc' },
+            orderBy: byPriority(),
             include: {
                 images: { orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }], take: 1 },
                 variants: { where: { isActive: true }, select: { size: true, color: true, colorHex: true } },
@@ -459,7 +509,7 @@ class ProductService {
         return prisma_1.prisma.product.findMany({
             where: { isActive: true, isTrending: true, deletedAt: null, ...gWhere },
             take: limit,
-            orderBy: [{ totalSold: 'desc' }, { sortOrder: 'asc' }],
+            orderBy: byPriority({ totalSold: 'desc' }),
             include: {
                 images: { orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }], take: 1 },
                 variants: { where: { isActive: true }, select: { size: true, color: true, colorHex: true } },
@@ -472,7 +522,7 @@ class ProductService {
         return prisma_1.prisma.product.findMany({
             where: { isActive: true, isNewArrival: true, deletedAt: null, ...gWhere },
             take: limit,
-            orderBy: { createdAt: 'desc' },
+            orderBy: byPriority(),
             include: {
                 images: { orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }], take: 1 },
                 variants: { where: { isActive: true }, select: { size: true, color: true, colorHex: true } },
@@ -485,7 +535,7 @@ class ProductService {
         return prisma_1.prisma.product.findMany({
             where: { isActive: true, isBestSeller: true, deletedAt: null, ...gWhere },
             take: limit,
-            orderBy: { totalSold: 'desc' },
+            orderBy: byPriority({ totalSold: 'desc' }),
             include: {
                 images: { orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }], take: 1 },
                 variants: { where: { isActive: true }, select: { size: true, color: true, colorHex: true } },

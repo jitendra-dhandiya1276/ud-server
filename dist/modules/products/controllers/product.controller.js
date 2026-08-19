@@ -218,6 +218,17 @@ class ProductController {
         const products = await product_service_1.productService.searchProducts(q, Number(limit) || 10);
         return (0, response_1.sendSuccess)(res, products, 'Search results');
     }
+    /**
+     * PATCH /products/positions — bulk display-priority update.
+     * Body: { items: [{ id, sortOrder }] }. Higher sortOrder shows first.
+     */
+    async updatePositions(req, res) {
+        const { items } = req.body;
+        if (!Array.isArray(items))
+            return (0, response_1.sendError)(res, 'items array required', 400);
+        const updated = await product_service_1.productService.updatePositions(items);
+        return (0, response_1.sendSuccess)(res, { updated }, 'Positions updated');
+    }
     // ── Variant CRUD ──────────────────────────────────────────────
     async getVariants(req, res) {
         const { id } = req.params;

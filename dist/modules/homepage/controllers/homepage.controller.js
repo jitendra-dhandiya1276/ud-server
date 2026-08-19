@@ -40,10 +40,18 @@ class HomepageController {
         return (0, response_1.sendSuccess)(res, null, 'Order updated');
     }
     async getFullHomepageData(req, res) {
+        // Same gender semantics as GET /banners/:type — a banner targeted at this
+        // gender, plus the ones targeted at everyone. Without this the server-
+        // rendered homepage showed every banner while the client's own refetch
+        // showed the filtered set, so the two disagreed until the first toggle.
+        const { gender } = req.query;
+        const gWhere = gender && gender.toUpperCase() !== 'ALL'
+            ? { gender: { in: [gender.toUpperCase(), 'ALL'] } }
+            : {};
         const [sections, heroBanners, promoBanners, testimonials, settings] = await Promise.all([
             prisma_1.prisma.homepageSection.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' } }),
-            prisma_1.prisma.banner.findMany({ where: { type: 'HERO', isActive: true }, orderBy: { sortOrder: 'asc' } }),
-            prisma_1.prisma.banner.findMany({ where: { type: 'PROMOTIONAL', isActive: true }, orderBy: { sortOrder: 'asc' } }),
+            prisma_1.prisma.banner.findMany({ where: { type: 'HERO', isActive: true, ...gWhere }, orderBy: { sortOrder: 'asc' } }),
+            prisma_1.prisma.banner.findMany({ where: { type: 'PROMOTIONAL', isActive: true, ...gWhere }, orderBy: { sortOrder: 'asc' } }),
             prisma_1.prisma.testimonial.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' } }),
             prisma_1.prisma.setting.findMany({ where: { group: 'homepage' } }),
         ]);

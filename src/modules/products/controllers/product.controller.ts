@@ -233,6 +233,17 @@ export class ProductController {
     return sendSuccess(res, products, 'Search results');
   }
 
+  /**
+   * PATCH /products/positions — bulk display-priority update.
+   * Body: { items: [{ id, sortOrder }] }. Higher sortOrder shows first.
+   */
+  async updatePositions(req: Request, res: Response) {
+    const { items } = req.body;
+    if (!Array.isArray(items)) return sendError(res, 'items array required', 400);
+    const updated = await productService.updatePositions(items);
+    return sendSuccess(res, { updated }, 'Positions updated');
+  }
+
   // ── Variant CRUD ──────────────────────────────────────────────
 
   async getVariants(req: Request, res: Response) {
