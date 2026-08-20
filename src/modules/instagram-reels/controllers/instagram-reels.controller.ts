@@ -8,6 +8,27 @@ import { logger } from '../../../utils/logger';
 
 
 /**
+ * The three audiences a reel can be aimed at.
+ *
+ * "ALL" is the default and the safe one: an untagged reel keeps showing on
+ * both storefronts exactly as it did before this field existed, so adding
+ * gender targeting cannot silently empty anyone's reel row.
+ *
+ * Anything unrecognised falls back to ALL rather than 400-ing — a typo in the
+ * payload should not be able to hide a reel from every shopper.
+ */
+const REEL_GENDERS = ['ALL', 'WOMEN', 'MEN'] as const;
+type ReelGender = (typeof REEL_GENDERS)[number];
+
+const normaliseGender = (value: unknown): ReelGender | undefined => {
+  if (value === undefined || value === null || value === '') return undefined;
+  const upper = String(value).trim().toUpperCase();
+  return (REEL_GENDERS as readonly string[]).includes(upper)
+    ? (upper as ReelGender)
+    : 'ALL';
+};
+
+/**
  * Resolve videoUrl / thumbnail from either an uploaded file or a pasted URL.
  * A file always wins over a URL typed in the same submission.
  *
@@ -43,6 +64,7 @@ const resolveMedia = async (req: Request) => {
     thumbnail,
     isActive: bool(body.isActive),
     sortOrder: body.sortOrder !== undefined ? Number(body.sortOrder) : undefined,
+    gender: normaliseGender(body.gender),
     // Handed to the background step once the response is out.
     videoPath: videoFile?.path,
     hasCustomThumb: Boolean(thumbFile || body.thumbnail),
@@ -108,8 +130,18 @@ export class InstagramReelsController {
       // otherwise render as empty black tiles on the homepage, so they are
       // withheld from the storefront rather than shown broken. The admin
       // listing still returns everything so they can be fixed or removed.
+      // Reels aimed at this storefront, plus the untargeted ones. Asking for
+      // ALL (or asking for nothing) means "no preference expressed", which
+      // returns every reel rather than only the untargeted ones — otherwise a
+      // shopper who has not picked a side would lose the gendered reels.
+      const requested = normaliseGender((req.query as Record<string, string>).gender);
+      const where: any = { isActive: true, videoUrl: { not: null } };
+      if (requested && requested !== 'ALL') {
+        where.gender = { in: [requested, 'ALL'] };
+      }
+
       const reels = await prisma.instagramReel.findMany({
-        where: { isActive: true, videoUrl: { not: null } },
+        where,
         orderBy: { sortOrder: 'asc' },
       });
       res.json({ success: true, data: reels });
@@ -121,7 +153,17 @@ export class InstagramReelsController {
   // ── Admin: get all reels ───────────────────────────────────────
   async getAll(req: Request, res: Response) {
     try {
+      // The admin filter is an exact match, not the storefront's
+      // "this gender + ALL" union: someone reviewing the Men reels wants the
+      // rows tagged MEN, not every row a man happens to see.
+      const { gender, isActive } = req.query as Record<string, string>;
+      const where: any = {};
+      const wanted = normaliseGender(gender);
+      if (wanted && String(gender).trim().toUpperCase() === wanted) where.gender = wanted;
+      if (isActive !== undefined) where.isActive = isActive === 'true';
+
       const reels = await prisma.instagramReel.findMany({
+        where,
         orderBy: { sortOrder: 'asc' },
       });
       res.json({ success: true, data: reels });
@@ -152,6 +194,7 @@ export class InstagramReelsController {
           thumbnail: media.thumbnail || null,
           isActive: media.isActive !== false,
           sortOrder: media.sortOrder ?? 0,
+          gender: media.gender ?? 'ALL',
         },
       });
       res.status(201).json({ success: true, data: reel });
@@ -192,6 +235,7 @@ export class InstagramReelsController {
           ...(media.thumbnail !== undefined && { thumbnail: media.thumbnail || null }),
           ...(media.isActive !== undefined && { isActive: media.isActive }),
           ...(media.sortOrder !== undefined && { sortOrder: media.sortOrder }),
+          ...(media.gender !== undefined && { gender: media.gender }),
         },
       });
       res.json({ success: true, data: reel });

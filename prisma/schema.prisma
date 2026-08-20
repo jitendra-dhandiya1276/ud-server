@@ -721,11 +721,16 @@ model InstagramReel {
   reelUrl     String
   videoUrl    String?
   thumbnail   String?
+  // Who the reel is styled for. "ALL" shows on both storefronts; WOMEN/MEN
+  // show only under that toggle. Same vocabulary as Banner.gender so the
+  // admin means one thing by "target gender" everywhere.
+  gender      String   @default("ALL")
   isActive    Boolean  @default(true)
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@index([gender, isActive])
   @@map("instagram_reels")
 }
 
