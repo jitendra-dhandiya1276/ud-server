@@ -535,7 +535,7 @@ app.use(`${v1}/x`, xRoutes);
 - **Money** is `Decimal(10,2)`; `taxPercent` is `Decimal(5,2)` default 18; `avgRating` is `Decimal(3,2)`.
 - **Denormalised counters** on `Product`: `totalReviews`, `avgRating`, `totalSold`, `viewCount`. Keep them in sync when writing related rows.
 - **Order snapshots**: `OrderItem` copies `name/image/size/colour/sku/price`, and `Order.shippingAddress`/`billingAddress` are `Json`. Historical orders must never change when a product is edited — preserve this.
-- **Gender** is a plain `String` (not an enum) on `Product` (default `"UNISEX"`), `Category`, and `Banner` (default `"ALL"`). Filters match `{ gender: { in: [SELECTED, 'UNISEX'] } }`.
+- **Gender** is a plain `String` (not an enum) on `Product` (default `"UNISEX"`), `Category`, `Banner` (default `"ALL"`), and `InstagramReel` (default `"ALL"`). Filters match `{ gender: { in: [SELECTED, 'UNISEX'] } }` for products, `{ in: [SELECTED, 'ALL'] } }` for banners and reels. The neutral value differs by model — `UNISEX` for catalogue rows, `ALL` for creative rows — so check which one you are filtering before copying a where-clause.
 - `BigInt.prototype.toJSON` is patched in `app.ts:5` so raw `COUNT`/`SUM` results serialise. Do not remove it — the analytics `$queryRaw` calls depend on it.
 
 ### Indexes present
@@ -801,7 +801,7 @@ Base URL: `{BASE_URL}/api/v1`. **Auth legend:** 🔓 public · 🔐 authenticate
 | `/seo` | `GET /page/:page`, `GET /cms/:slug` | `GET /admin/all`, `PUT /admin/:id`, `POST /admin/upsert`, `GET /admin/cms`, `POST /admin/cms` 👑 |
 | `/media` | — | `GET /`, `POST /upload` (≤20 files), `DELETE /:id` 👑 |
 | `/stores` | `GET /` | `GET /admin`, `POST /`, `PUT /reorder`, `PUT /:id`, `DELETE /:id` 👑 · **2 MB cap** |
-| `/instagram-reels` | `GET /` | `GET /admin`, `POST /`, `PATCH /reorder`, `PUT /:id`, `DELETE /:id` 🛡 |
+| `/instagram-reels` | `GET /?gender=` | `GET /admin?gender=&isActive=`, `POST /`, `PATCH /reorder`, `PUT /:id`, `DELETE /:id` 🛡 |
 
 ---
 
@@ -1429,6 +1429,10 @@ Navbar toggle → genderSlice.setGender → localStorage 'ud_gender'
   → backend filters { gender: { in: ['MEN', 'UNISEX'] } }
   → banners filter on Banner.gender ∈ {MEN, ALL}
 On next load, GenderInitializer restores the saved value.
+
+Reels follow the same path: `/` fetches `/instagram-reels?gender=` from the cookie at SSR time, and
+`GenderHomePage` refetches them alongside the banners when the toggle moves — reels live in
+component state, not in `initialData`, or they would stay on whatever the server first rendered.
 ```
 
 ---
@@ -1556,7 +1560,7 @@ Rules:  components never call axios directly — always services/api.service
 | **Settings** | Key/value config by group | Groups: general, contact, social, homepage, shipping; `/settings/public` is the storefront-safe subset |
 | **Media** | Central library | Folder enum; batch upload up to 20 files |
 | **Stores** | Physical store locator | 2 MB image cap; reorderable |
-| **Instagram Reels** | Embedded reels | Reorderable; sub-admin manageable |
+| **Instagram Reels** | Self-hosted reel videos | Reorderable; sub-admin manageable; gender-targeted (`ALL`/`WOMEN`/`MEN`) like banners. The storefront asks for a gender and gets that gender **plus** `ALL`; the admin filter is an exact match, because someone reviewing the Men reels wants the rows tagged `MEN`, not every row a man happens to see. An unrecognised value degrades to `ALL` rather than 400-ing, so a bad payload can never hide a reel from every shopper |
 | **Analytics** | Admin dashboard + revenue report | Revenue counts `paymentStatus: PAID` only; uses `$queryRaw` with `BigInt` serialisation |
 
 ---
