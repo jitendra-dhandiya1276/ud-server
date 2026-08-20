@@ -792,7 +792,7 @@ Base URL: `{BASE_URL}/api/v1`. **Auth legend:** 🔓 public · 🔐 authenticate
 |---|---|---|
 | `/wishlist` | — | `GET /`, `POST /toggle`, `GET /check/:productId` (all 🔐) |
 | `/reviews` | `GET /product/:productId` | `POST /` 🔐 · `GET /`, `PUT /:id`, `PUT /:id/status`, `DELETE /:id` 👑 |
-| `/banners` | `GET /type/:type` | `GET /`, `POST /`, `PUT /reorder`, `PUT /:id`, `DELETE /:id` 👑 · **1 MB image cap** |
+| `/banners` | `GET /type/:type` | `GET /`, `POST /`, `PUT /reorder`, `PUT /:id`, `DELETE /:id` 👑 · image cap = `MAX_FILE_SIZE` |
 | `/coupons` | `POST /validate`, `GET /:code/check` | CRUD 👑 |
 | `/homepage` | `GET /`, `GET /data` | `GET /admin`, `POST /`, `PUT /reorder`, `PUT /:id`, `DELETE /:id` 👑 |
 | `/blogs` | `GET /`, `/categories`, `/:slug` | `GET /admin/all`, `POST /`, `PUT /:id`, `DELETE /:id` 👑 |
@@ -863,6 +863,17 @@ Base URL: `{BASE_URL}/api/v1`. **Auth legend:** 🔓 public · 🔐 authenticate
 - **A `mobileImage` is the only way to get a tall mobile hero.** Wide artwork at 390px is a ~152px
   strip — complete, but short. Uploading a portrait crop switches the box to 4:5 at the same 768px
   the `<picture>` source switches, which is what art direction is for. No banner currently has one.
+- **Framing is chosen at upload time, in the browser.** `components/common/ImageCropperProvider.tsx`
+  wraps the admin and account layouts and exposes `useImageCropper()` /
+  `useImageCropperBatch()`, which resolve to the file to upload (or `null` if the admin backs out).
+  Every image picker in the panel goes through it. The pipeline can decide *how* to encode an image
+  but not *which part of it matters*, and `object-fit: cover` discards the rest silently — the crop
+  dialog moves that choice to the person who knows what the subject is. `CROP_PRESETS` holds one
+  entry per surface; its `aspect` mirrors the storefront component's own box and its `minWidth`
+  mirrors `MIN_SOURCE_WIDTH` below. **Change one and change the other**, or the dialog will produce
+  crops the server then rejects. The exporter (`lib/imageCrop.ts`) never upscales, meets a byte
+  budget by lowering quality first and resolution second but never past `minWidth`, applies EXIF
+  orientation, and returns an untouched file unchanged rather than re-encoding it for nothing.
 - **Source resolution is the one thing the pipeline cannot fix.** It never upscales by design, so a source narrower than its render box is stretched by the *browser* — that is what "the image looks blurry" almost always means. `validateUploadResolution` rejects uploads below `MIN_SOURCE_WIDTH` (products 1000px, categories 800px, banners 1440px); `npm run images:audit` lists existing offenders. Set `IMAGE_MIN_RESOLUTION_ENFORCE=false` to warn instead of reject.
 - **`PIPELINE_VERSION` must be bumped whenever encoder settings change.** The cache key is otherwise source identity + width/format/quality only, so a settings change would keep serving derivatives from the old encoder forever. Bumping it invalidates everything; follow with `npm run images:warm`.
 - AVIF uses **4:4:4** chroma. 4:2:0 halves colour resolution and softens print edges on garments — measured 39.80 dB PSNR vs **41.43 dB** at 4:4:4 (past the ~40 dB visually-lossless line) for ~9% more bytes.
@@ -1554,7 +1565,7 @@ Rules:  components never call axios directly — always services/api.service
 | **Coupons** | Validation and application | Types: `PERCENTAGE`, `FIXED`, `FREE_SHIPPING`, `BUY_X_GET_Y` (last two are not implemented in the discount math); `minOrderAmount`, `maxDiscount`, `usageLimit` honoured; `userLimit` **not** enforced |
 | **Reviews** | Customer reviews + moderation | `PENDING` → `APPROVED`/`REJECTED`; only approved reviews are public |
 | **Homepage** | Section builder | 24 `HomepageSectionType` variants; `sortOrder` + `isActive`; `config` is free-form Json (e.g. `{ limit: 8 }`) |
-| **Banners** | Hero / promotional / category creatives | Typed + gender-scoped + date-windowed; 1 MB image cap |
+| **Banners** | Hero / promotional / category creatives | Typed + gender-scoped + date-windowed; image cap = `MAX_FILE_SIZE` (was 1 MB; the route now follows the shared limit) |
 | **Blogs** | Posts, categories, tags | Soft delete; `isPublished` + `publishedAt` gate visibility |
 | **SEO & CMS** | Per-page meta, CMS pages | `SeoMeta` keyed by page name; `CmsPage` rendered by the `[page]` catch-all (**currently broken — §25 #7**) |
 | **Settings** | Key/value config by group | Groups: general, contact, social, homepage, shipping; `/settings/public` is the storefront-safe subset |
