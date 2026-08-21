@@ -471,6 +471,15 @@ In development only, the error handler also appends `stack`.
   a concurrent edit degrades to a reorder rather than dropping images. Admin UI is
   `components/admin/SortableImageGrid.tsx` (dnd-kit), shared by the add and edit product forms;
   order is submitted with the form, not auto-saved.
+- **Images can be tagged to a colour.** `PUT /products/:id` also takes `imageColors`, a map keyed
+  by the *same* tokens as `imageOrder` (an existing `ProductImage.id`, or `new:<n>`), whose values
+  set `ProductImage.color`. `null` means the image belongs to the default set. The storefront
+  resolves the gallery with `lib/productImages.ts:galleryFor()`: shots for the chosen colour →
+  otherwise the untagged shots → otherwise everything. That middle step is the one that matters —
+  a product offered in two colours but photographed once keeps showing that photoshoot for both.
+  Colours match by name, case- and space-insensitively, and are **not** validated against the
+  variants: admins upload photos before adding variant rows, so a tag matching nothing simply never
+  wins the filter rather than being rejected.
 
 ---
 
@@ -1555,7 +1564,7 @@ Rules:  components never call axios directly — always services/api.service
 |---|---|---|
 | **Auth** | Register, login, Google OAuth, refresh, logout, password reset/change | Refresh rotation; single active session; `isVerified` auto-true in dev |
 | **Users** | Profile, addresses, notifications, recently-viewed; admin user management | One default address per user; admin can toggle `isActive` |
-| **Products** | Catalog, variants, images, tags, badges, FAQs, related products | Soft delete; slug deduped with a timestamp; exactly one primary image is enforced on update; `viewCount` increments on public detail fetch |
+| **Products** | Catalog, variants, images (optionally per-colour), tags, badges, FAQs, related products | Soft delete; slug deduped with a timestamp; exactly one primary image is enforced on update; `viewCount` increments on public detail fetch |
 | **Categories** | Self-referencing tree, nav menu, featured/home flags | `showInNav` / `showOnHome` / `isFeatured` drive storefront placement; optional gender |
 | **Collections** | Curated groupings via `ProductCollection` | Many-to-many with `sortOrder` |
 | **Cart** | Guest + authenticated carts, coupon preview | Guest via `x-session-id`, user via `userId`; qty < 1 deletes the line; price snapshotted at add time |
