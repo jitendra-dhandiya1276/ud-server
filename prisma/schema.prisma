@@ -965,12 +965,19 @@ model NavMenu {
   children  NavMenu[] @relation("MenuChildren")
   target    String    @default("_self")
   icon      String?
+  /// Where the link is rendered. "quick_links" is the row at the top of the
+  /// Shop mega menu; the column is deliberately open so a header or footer
+  /// menu can reuse this table without a migration.
   position  String    @default("header")
+  /// ALL shows under both storefronts; WOMEN/MEN restrict it to one, matching
+  /// Banner.gender and InstagramReel.gender.
+  gender    String    @default("ALL")
   sortOrder Int       @default(0)
   isActive  Boolean   @default(true)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
   @@index([position, isActive])
+  @@index([position, gender, isActive])
   @@map("nav_menus")
 }
