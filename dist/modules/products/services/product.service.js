@@ -244,7 +244,38 @@ class ProductService {
             where: { id: product.id },
             data: { viewCount: { increment: 1 } },
         });
-        return product;
+        /**
+         * Fill "You May Also Like" when nobody has curated it.
+         *
+         * The section only ever read the hand-picked `relatedProducts` join, and
+         * no product in the catalogue has any, so the bottom of every product page
+         * was a dead end — the one place a shopper is most likely to keep
+         * browsing. A curated list still wins where it exists; this only covers
+         * the gap.
+         *
+         * Same category, best sellers first, then the category's own curated
+         * priority — so this row agrees with the ordering the admin already
+         * controls rather than inventing a second opinion.
+         */
+        let suggested = [];
+        if (!product.relatedProducts?.length && product.categoryId) {
+            suggested = await prisma_1.prisma.product.findMany({
+                where: {
+                    categoryId: product.categoryId,
+                    id: { not: product.id },
+                    isActive: true,
+                    deletedAt: null,
+                },
+                orderBy: [{ totalSold: 'desc' }, { sortOrder: 'desc' }, { createdAt: 'desc' }],
+                take: 8,
+                include: {
+                    images: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }], take: 1 },
+                    variants: { where: { isActive: true }, select: { color: true, size: true } },
+                    category: { select: { id: true, name: true, slug: true } },
+                },
+            });
+        }
+        return { ...product, suggestedProducts: suggested };
     }
     async createProduct(data) {
         const { images, variantsData, tags, collectionIds, ...productData } = data;
