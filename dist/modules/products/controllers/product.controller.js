@@ -151,10 +151,10 @@ class ProductController {
         return (0, response_1.sendPaginated)(res, result.products, result.total, result.page, result.limit);
     }
     async getProducts(req, res) {
-        const { page, limit, search, categoryId, categorySlug, collectionSlug, minPrice, maxPrice, sizes, colors, brands, isFeatured, isTrending, isNewArrival, isBestSeller, inStock, rating, sortBy, gender, } = req.query;
+        const { page, limit, search, categoryId, categorySlug, collectionSlug, collectionId, minPrice, maxPrice, sizes, colors, brands, isFeatured, isTrending, isNewArrival, isBestSeller, inStock, rating, sortBy, gender, } = req.query;
         const parseBool = (v) => v === 'true' ? true : v === 'false' ? false : undefined;
         const result = await product_service_1.productService.getProducts({
-            page: Number(page), limit: Number(limit), search, categoryId, categorySlug, collectionSlug,
+            page: Number(page), limit: Number(limit), search, categoryId, categorySlug, collectionSlug, collectionId,
             minPrice: minPrice ? Number(minPrice) : undefined,
             maxPrice: maxPrice ? Number(maxPrice) : undefined,
             sizes: sizes?.split(','),

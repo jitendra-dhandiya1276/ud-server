@@ -13,6 +13,7 @@ export interface ProductFilters {
   categoryId?: string;
   categorySlug?: string;
   collectionSlug?: string;
+  collectionId?: string;
   minPrice?: number;
   maxPrice?: number;
   sizes?: string[];
@@ -89,6 +90,11 @@ export class ProductService {
     if (filters.categoryId) where.categoryId = filters.categoryId;
     if (filters.categorySlug) where.category = { slug: filters.categorySlug };
     if (filters.collectionSlug) where.collections = { some: { collection: { slug: filters.collectionSlug } } };
+    // By id as well as by slug. The collection page holds the record it just
+    // fetched, so it filters by id — which it was already sending, and which
+    // was being dropped silently, leaving every collection showing the entire
+    // catalogue. An id also survives a rename, where a slug does not.
+    if (filters.collectionId) where.collections = { some: { collectionId: filters.collectionId } };
     if (filters.isFeatured !== undefined) where.isFeatured = filters.isFeatured;
     if (filters.isTrending !== undefined) where.isTrending = filters.isTrending;
     if (filters.isNewArrival !== undefined) where.isNewArrival = filters.isNewArrival;

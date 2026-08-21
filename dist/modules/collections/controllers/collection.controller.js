@@ -62,6 +62,33 @@ class CollectionController {
         const { id } = req.params;
         const file = req.file;
         const data = { ...req.body };
+        const existing = await prisma_1.prisma.collection.findUnique({ where: { id } });
+        if (!existing)
+            return (0, response_1.sendError)(res, 'Collection not found', 404);
+        /**
+         * Follow the name when it changes.
+         *
+         * Only `create` ever set the slug, so renaming a collection left the old
+         * one in place — which is how "Office wear" ended up living at
+         * /collections/street-ready and "Summer Collection" at /collections/
+         * office-chic. Every seeded collection had been renamed, so every URL on
+         * the collections page pointed at a name nobody recognised.
+         *
+         * An explicit slug in the payload still wins, so an admin can pin a URL
+         * they have already shared.
+         */
+        if (data.name && !data.slug) {
+            const base = (0, slugify_1.createSlug)(data.name);
+            if (base && base !== existing.slug) {
+                // slug is unique; a rename must not 500 because another collection got
+                // there first.
+                const clash = await prisma_1.prisma.collection.findFirst({
+                    where: { slug: base, NOT: { id } },
+                    select: { id: true },
+                });
+                data.slug = clash ? `${base}-${Date.now().toString(36)}` : base;
+            }
+        }
         if (file)
             data.image = (0, upload_1.getImageUrl)(file.path);
         if (data.isActive !== undefined)

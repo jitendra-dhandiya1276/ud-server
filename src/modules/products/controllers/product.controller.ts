@@ -139,7 +139,7 @@ export class ProductController {
 
   async getProducts(req: Request, res: Response) {
     const {
-      page, limit, search, categoryId, categorySlug, collectionSlug,
+      page, limit, search, categoryId, categorySlug, collectionSlug, collectionId,
       minPrice, maxPrice, sizes, colors, brands, isFeatured, isTrending,
       isNewArrival, isBestSeller, inStock, rating, sortBy, gender,
     } = req.query as Record<string, string>;
@@ -148,7 +148,7 @@ export class ProductController {
       v === 'true' ? true : v === 'false' ? false : undefined;
 
     const result = await productService.getProducts({
-      page: Number(page), limit: Number(limit), search, categoryId, categorySlug, collectionSlug,
+      page: Number(page), limit: Number(limit), search, categoryId, categorySlug, collectionSlug, collectionId,
       minPrice: minPrice ? Number(minPrice) : undefined,
       maxPrice: maxPrice ? Number(maxPrice) : undefined,
       sizes: sizes?.split(','),
