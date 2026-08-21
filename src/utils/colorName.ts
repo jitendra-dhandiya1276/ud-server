@@ -6,9 +6,12 @@
  * merchandise "Tan". Admins now type the name, which is also what the customer
  * reads on the product page.
  *
- * The storefront still paints a swatch from `colorHex`, so a name has to become
- * a colour somewhere — doing it here means the admin never sees a hex field and
- * existing swatch rendering keeps working untouched.
+ * NOTE: nothing renders a swatch any more. The storefront and the admin both
+ * show the colour NAME in a box, because deriving a hex from a name is lossy in
+ * a way customers could see — "Blue" and "Light Blue" resolved to circles too
+ * similar to tell apart, which is exactly how a denim product ended up offering
+ * two identical blue dots. This is kept because the column is still written and
+ * a future surface may want a hint colour; it is not on any display path.
  *
  * Covers the CSS named colours plus the terms that actually appear in fashion
  * merchandising and are not valid CSS. Unknown names return null, and the
