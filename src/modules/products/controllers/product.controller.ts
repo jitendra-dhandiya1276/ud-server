@@ -12,6 +12,22 @@ const parseArray = (val: any): string[] | undefined => {
   return undefined;
 };
 
+/**
+ * A plain string map from multipart, e.g. the image-to-colour assignment.
+ * Anything that is not an object of strings collapses to {} — a malformed
+ * field should leave the images untagged, never abort the whole save.
+ */
+const parseObject = (val: any): Record<string, string | null> => {
+  if (!val) return {};
+  const raw = typeof val === 'string' ? (() => { try { return JSON.parse(val); } catch { return null; } })() : val;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, string | null> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    out[k] = typeof v === 'string' && v.trim() ? v.trim() : null;
+  }
+  return out;
+};
+
 const parseBool = (val: any): boolean | undefined => {
   if (val === undefined || val === null || val === '') return undefined;
   if (typeof val === 'boolean') return val;
@@ -43,6 +59,10 @@ const sanitizeProductBody = (body: any) => {
   // Remove fields not in Prisma schema
   delete b.fit;
   delete b.style;
+  // Consumed by the controller before this point (create) or re-attached
+  // straight after it (update). Leaving it here would reach `product.create`
+  // as an unknown column and fail the whole save.
+  delete b.imageColors;
   // Normalize gender value
   if (b.gender) b.gender = String(b.gender).toUpperCase();
   // Parse variants JSON string → flat variantsData array
@@ -155,11 +175,15 @@ export class ProductController {
 
   async createProduct(req: Request, res: Response) {
     const files = req.files as Express.Multer.File[] | undefined;
+    // Which colour each upload is a shot of, keyed by `new:<n>` — the same
+    // token vocabulary the reorder UI already uses.
+    const imageColors = parseObject(req.body.imageColors);
     const images = files?.map((file, index) => ({
       url: getImageUrl(file.path),
       altText: req.body.name,
       isPrimary: index === 0,
       sortOrder: index,
+      color: imageColors[`new:${index}`] || null,
     }));
 
     const body = withDerivedStock(sanitizeProductBody({ ...req.body, images }));
@@ -178,9 +202,11 @@ export class ProductController {
     const files = req.files as Express.Multer.File[] | undefined;
     // Position and cover are assigned by the service from imageOrder, so the
     // upload itself no longer guesses at either.
-    const newImages = files?.map((file) => ({
+    const imageColors = parseObject(req.body.imageColors);
+    const newImages = files?.map((file, index) => ({
       url: getImageUrl(file.path),
       altText: req.body.name || '',
+      color: imageColors[`new:${index}`] || null,
     }));
 
     const removeImageIds = req.body.removeImageIds
@@ -192,6 +218,8 @@ export class ProductController {
     const imageOrder = parseArray(req.body.imageOrder);
 
     const body = sanitizeProductBody({ ...req.body, newImages, removeImageIds, imageOrder });
+    // After the sanitizer, which strips it as a non-column field.
+    body.imageColors = imageColors;
     const product = await productService.updateProduct(id, body);
     return sendSuccess(res, product, 'Product updated');
   }

@@ -371,7 +371,7 @@ class ProductService {
         const product = await prisma_1.prisma.product.findFirst({ where: { id, deletedAt: null } });
         if (!product)
             throw new error_middleware_1.AppError('Product not found', 404);
-        const { newImages, tags, collectionIds, removeImageIds, imageOrder, ...productData } = data;
+        const { newImages, tags, collectionIds, removeImageIds, imageOrder, imageColors, ...productData } = data;
         // Coerce booleans that come as strings from FormData
         const boolFields = ['isActive', 'isFeatured', 'isTrending', 'isNewArrival', 'isBestSeller', 'trackInventory'];
         for (const f of boolFields) {
@@ -414,6 +414,7 @@ class ProductService {
                     productId: id,
                     url: img.url,
                     altText: img.altText || '',
+                    color: img.color ?? null,
                     sortOrder: 0, // real position assigned by applyImageOrder below
                     isPrimary: false,
                 },
@@ -437,11 +438,54 @@ class ProductService {
         });
         // Position is the single source of truth; isPrimary is derived from it.
         await this.applyImageOrder(id, imageOrder, createdImageIds);
+        await this.applyImageColors(id, imageColors, createdImageIds);
         updated.images = await prisma_1.prisma.productImage.findMany({
             where: { productId: id },
             orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         });
         return updated;
+    }
+    /**
+     * Assign each image to a colour, so the gallery can swap when the customer
+     * picks one.
+     *
+     * `colors` is keyed by the same tokens as `imageOrder` — an existing image
+     * id, or `new:<n>` for the nth file in this request — so the admin form
+     * speaks one vocabulary for both position and colour.
+     *
+     * A value of null (or an empty string) clears the tag, which puts the image
+     * back in the default set shown when the chosen colour has no shots of its
+     * own. That fallback is the whole reason this is nullable: a product with
+     * two colours and one photo must still show that photo, not an empty frame.
+     *
+     * Colours are NOT validated against the product's variants here. An admin
+     * routinely uploads the images before adding the variant rows, and rejecting
+     * or silently dropping the tag at that moment would lose their work; a tag
+     * that matches nothing simply never wins the filter.
+     */
+    async applyImageColors(productId, colors, createdIds = []) {
+        if (!colors || typeof colors !== 'object')
+            return;
+        const existing = await prisma_1.prisma.productImage.findMany({
+            where: { productId },
+            select: { id: true, color: true },
+        });
+        if (!existing.length)
+            return;
+        const current = new Map(existing.map(img => [img.id, img.color]));
+        const writes = [];
+        for (const [token, raw] of Object.entries(colors)) {
+            const id = token.startsWith('new:') ? createdIds[Number(token.slice(4))] : token;
+            if (!id || !current.has(id))
+                continue; // deleted by a concurrent edit
+            const next = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+            if (current.get(id) === next)
+                continue; // nothing to write
+            writes.push({ id, color: next });
+        }
+        if (!writes.length)
+            return;
+        await prisma_1.prisma.$transaction(writes.map(w => prisma_1.prisma.productImage.update({ where: { id: w.id }, data: { color: w.color } })));
     }
     /**
      * Renumber a product's images to 0..n-1 and mark position 0 as the cover.

@@ -243,11 +243,17 @@ model ProductImage {
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   url       String
   altText   String?
+  /// Which colour this shot is OF, matching ProductVariant.color by name.
+  /// Null means it belongs to no particular colour and is shown as the default
+  /// — which is what every image predating this field is, so the gallery keeps
+  /// behaving exactly as before until an admin starts tagging.
+  color     String?
   sortOrder Int     @default(0)
   isPrimary Boolean @default(false)
   createdAt DateTime @default(now())
 
   @@index([productId])
+  @@index([productId, color])
   @@map("product_images")
 }
 
