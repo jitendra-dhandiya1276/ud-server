@@ -810,6 +810,7 @@ Base URL: `{BASE_URL}/api/v1`. **Auth legend:** 🔓 public · 🔐 authenticate
 | `/seo` | `GET /page/:page`, `GET /cms/:slug` | `GET /admin/all`, `PUT /admin/:id`, `POST /admin/upsert`, `GET /admin/cms`, `POST /admin/cms` 👑 |
 | `/media` | — | `GET /`, `POST /upload` (≤20 files), `DELETE /:id` 👑 |
 | `/stores` | `GET /` | `GET /admin`, `POST /`, `PUT /reorder`, `PUT /:id`, `DELETE /:id` 👑 · **2 MB cap** |
+| `/nav-menus` | `GET /?position=&gender=` | `GET /admin`, `POST /`, `PATCH /positions`, `POST /import-defaults`, `PUT /:id`, `DELETE /:id` 🛡 |
 | `/instagram-reels` | `GET /?gender=` | `GET /admin?gender=&isActive=`, `POST /`, `PATCH /reorder`, `PUT /:id`, `DELETE /:id` 🛡 |
 
 ---
@@ -1580,6 +1581,7 @@ Rules:  components never call axios directly — always services/api.service
 | **Settings** | Key/value config by group | Groups: general, contact, social, homepage, shipping; `/settings/public` is the storefront-safe subset |
 | **Media** | Central library | Folder enum; batch upload up to 20 files |
 | **Stores** | Physical store locator | 2 MB image cap; reorderable |
+| **Nav Menus** | Editable navigation links | Uses the previously-unused `NavMenu` model. `position` names the surface (`quick_links` = the row atop the Shop mega menu); `gender` follows the banner vocabulary. URLs must be site paths — these render as anchors in the site chrome, so an absolute URL would turn the shop's own menu into an offsite redirect. **The storefront keeps its own four defaults and uses them whenever the table is empty**, applied *before* the gender filter so MEN-only links do not silently reinstate the defaults for women |
 | **Instagram Reels** | Self-hosted reel videos | Reorderable; sub-admin manageable; gender-targeted (`ALL`/`WOMEN`/`MEN`) like banners. The storefront asks for a gender and gets that gender **plus** `ALL`; the admin filter is an exact match, because someone reviewing the Men reels wants the rows tagged `MEN`, not every row a man happens to see. An unrecognised value degrades to `ALL` rather than 400-ing, so a bad payload can never hide a reel from every shopper |
 | **Analytics** | Admin dashboard + revenue report | Revenue counts `paymentStatus: PAID` only; uses `$queryRaw` with `BigInt` serialisation |
 
