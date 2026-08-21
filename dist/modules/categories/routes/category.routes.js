@@ -14,6 +14,8 @@ router.get('/parents', category_controller_1.categoryController.getParents.bind(
 router.get('/home', category_controller_1.categoryController.getHomeCategories.bind(category_controller_1.categoryController));
 router.get('/:slug', category_controller_1.categoryController.getBySlug.bind(category_controller_1.categoryController));
 // Admin
+// Before the parameterised routes, per the routing convention.
+router.patch('/positions', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, category_controller_1.categoryController.updatePositions.bind(category_controller_1.categoryController));
 router.post('/', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, upload.single('image'), category_controller_1.categoryController.create.bind(category_controller_1.categoryController));
 router.put('/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, upload.single('image'), category_controller_1.categoryController.update.bind(category_controller_1.categoryController));
 router.delete('/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, category_controller_1.categoryController.delete.bind(category_controller_1.categoryController));

@@ -19,7 +19,7 @@ class CategoryController {
             const categories = await prisma_1.prisma.category.findMany({
                 where,
                 include: {
-                    children: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } },
+                    children: { where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] },
                     ...(withProducts === 'true' && {
                         products: {
                             where: { isActive: true, deletedAt: null },
@@ -29,7 +29,7 @@ class CategoryController {
                     }),
                     _count: { select: { products: true } },
                 },
-                orderBy: { sortOrder: 'asc' },
+                orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
             });
             return (0, response_1.sendSuccess)(res, categories, 'Categories fetched');
         }
@@ -45,7 +45,7 @@ class CategoryController {
                     parent: { select: { id: true, name: true } },
                     _count: { select: { products: true } },
                 },
-                orderBy: { sortOrder: 'asc' },
+                orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
                 skip,
                 take: l,
             }),
@@ -58,7 +58,7 @@ class CategoryController {
     async getNavMenu(req, res) {
         const categories = await prisma_1.prisma.category.findMany({
             where: { isActive: true, showInNav: true, parentId: null, deletedAt: null },
-            orderBy: { sortOrder: 'asc' },
+            orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
             select: {
                 id: true,
                 name: true,
@@ -67,7 +67,7 @@ class CategoryController {
                 gender: true,
                 children: {
                     where: { isActive: true, showInNav: true },
-                    orderBy: { sortOrder: 'asc' },
+                    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
                     select: { id: true, name: true, slug: true, gender: true },
                 },
             },
@@ -79,7 +79,7 @@ class CategoryController {
         const category = await prisma_1.prisma.category.findFirst({
             where: { slug, isActive: true },
             include: {
-                children: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } },
+                children: { where: { isActive: true }, orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] },
                 parent: { select: { id: true, name: true, slug: true } },
                 _count: { select: { products: true } },
             },
@@ -92,7 +92,7 @@ class CategoryController {
     async getParents(req, res) {
         const categories = await prisma_1.prisma.category.findMany({
             where: { parentId: null, isActive: true, deletedAt: null },
-            orderBy: { sortOrder: 'asc' },
+            orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
             select: { id: true, name: true, slug: true },
         });
         return (0, response_1.sendSuccess)(res, categories, 'Parent categories');
@@ -106,7 +106,7 @@ class CategoryController {
         }
         const categories = await prisma_1.prisma.category.findMany({
             where,
-            orderBy: { sortOrder: 'asc' },
+            orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
             select: {
                 id: true, name: true, slug: true, image: true, gender: true,
                 _count: { select: { products: true } },
@@ -155,6 +155,32 @@ class CategoryController {
         const category = await prisma_1.prisma.category.update({ where: { id }, data });
         return (0, response_1.sendSuccess)(res, category, 'Category updated');
     }
+    /**
+     * Bulk-set the menu position of several categories in one save.
+     *
+     * The mega menu already ordered by `sortOrder`; what was missing was a way
+     * to set it without opening each category's edit dialog one at a time, which
+     * is why every category sat at 0 and the menu came out in creation order.
+     *
+     * Lower shows first, matching every other `sortOrder` in the schema — and
+     * deliberately the opposite of `Product.sortOrder`, which is a priority where
+     * higher wins. The two are never edited on the same screen.
+     */
+    async updatePositions(req, res) {
+        const items = Array.isArray(req.body?.items) ? req.body.items : [];
+        const clean = items
+            .filter((i) => i && typeof i.id === 'string' && Number.isFinite(Number(i.sortOrder)))
+            .map((i) => ({ id: i.id, sortOrder: Math.trunc(Number(i.sortOrder)) }));
+        if (!clean.length)
+            return (0, response_1.sendSuccess)(res, { updated: 0 }, 'Nothing to update');
+        // updateMany, not update: an id deleted by a concurrent edit should be a
+        // no-op row, not a failure that rolls back everyone else's positions.
+        await prisma_1.prisma.$transaction(clean.map((i) => prisma_1.prisma.category.updateMany({
+            where: { id: i.id, deletedAt: null },
+            data: { sortOrder: i.sortOrder },
+        })));
+        return (0, response_1.sendSuccess)(res, { updated: clean.length }, 'Menu order updated');
+    }
     async delete(req, res) {
         const { id } = req.params;
         await prisma_1.prisma.category.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
@@ -165,7 +191,7 @@ class CategoryController {
         const take = Math.min(50, parseInt(String(limit || 12), 10));
         const categories = await prisma_1.prisma.category.findMany({
             where: { isActive: true, isFeatured: true, parentId: null, deletedAt: null },
-            orderBy: { sortOrder: 'asc' },
+            orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
             take,
             include: { _count: { select: { products: true } } },
         });

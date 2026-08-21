@@ -15,6 +15,8 @@ router.get('/home',          categoryController.getHomeCategories.bind(categoryC
 router.get('/:slug',         categoryController.getBySlug.bind(categoryController));
 
 // Admin
+// Before the parameterised routes, per the routing convention.
+router.patch('/positions', authenticate, isAdminOrSubAdmin, categoryController.updatePositions.bind(categoryController));
 router.post('/',    authenticate, isAdminOrSubAdmin, upload.single('image'), categoryController.create.bind(categoryController));
 router.put('/:id',  authenticate, isAdminOrSubAdmin, upload.single('image'), categoryController.update.bind(categoryController));
 router.delete('/:id', authenticate, isAdmin, categoryController.delete.bind(categoryController));
