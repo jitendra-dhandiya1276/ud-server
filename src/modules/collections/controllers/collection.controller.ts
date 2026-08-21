@@ -2,7 +2,24 @@ import { Request, Response } from 'express';
 import { prisma } from '../../../config/prisma';
 import { sendSuccess, sendError, sendPaginated } from '../../../utils/response';
 import { createSlug, paginationParams } from '../../../utils/slugify';
-import { getImageUrl } from '../../../utils/upload';
+import { getImageUrl, deleteUploadByUrl } from '../../../utils/upload';
+
+/**
+ * Pull the uploaded files out of a multipart request.
+ *
+ * The route moved from `upload.single('image')` to `upload.fields([...])` so a
+ * collection can carry both a card image and a wide hero banner, which changes
+ * `req.file` into a keyed `req.files`. Both shapes are handled because the
+ * admin form is the only caller and a stale bundle would otherwise silently
+ * stop saving images.
+ */
+const pickFiles = (req: Request) => {
+  const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+  return {
+    image: files?.image?.[0] ?? (req as any).file,
+    bannerImage: files?.bannerImage?.[0],
+  };
+};
 
 export class CollectionController {
   async getAll(req: Request, res: Response) {
@@ -45,10 +62,11 @@ export class CollectionController {
   }
 
   async create(req: Request, res: Response) {
-    const file = req.file;
+    const { image, bannerImage } = pickFiles(req);
     const data: any = { ...req.body };
     if (!data.slug) data.slug = createSlug(data.name);
-    if (file) data.image = getImageUrl(file.path);
+    if (image) data.image = getImageUrl(image.path);
+    if (bannerImage) data.bannerImage = getImageUrl(bannerImage.path);
     if (data.isActive !== undefined) data.isActive = data.isActive === 'true' || data.isActive === true;
     if (data.isFeatured !== undefined) data.isFeatured = data.isFeatured === 'true' || data.isFeatured === true;
     if (data.sortOrder !== undefined) data.sortOrder = parseInt(data.sortOrder, 10);
@@ -58,7 +76,7 @@ export class CollectionController {
 
   async update(req: Request, res: Response) {
     const { id } = req.params;
-    const file = req.file;
+    const { image, bannerImage } = pickFiles(req);
     const data: any = { ...req.body };
 
     const existing = await prisma.collection.findUnique({ where: { id } });
@@ -89,11 +107,27 @@ export class CollectionController {
       }
     }
 
-    if (file) data.image = getImageUrl(file.path);
+    if (image) data.image = getImageUrl(image.path);
+    if (bannerImage) data.bannerImage = getImageUrl(bannerImage.path);
     if (data.isActive !== undefined) data.isActive = data.isActive === 'true' || data.isActive === true;
     if (data.isFeatured !== undefined) data.isFeatured = data.isFeatured === 'true' || data.isFeatured === true;
     if (data.sortOrder !== undefined) data.sortOrder = parseInt(data.sortOrder, 10);
+
+    // An empty string from the form means "clear this", which is how a banner
+    // is removed without deleting the collection.
+    if (data.bannerImage === '') data.bannerImage = null;
+
     const collection = await prisma.collection.update({ where: { id }, data });
+
+    // Only once the row points elsewhere, so a crash between the two cannot
+    // leave the collection referencing a file that no longer exists.
+    if (image && existing.image && existing.image !== collection.image) {
+      await deleteUploadByUrl(existing.image);
+    }
+    if (existing.bannerImage && existing.bannerImage !== collection.bannerImage) {
+      await deleteUploadByUrl(existing.bannerImage);
+    }
+
     return sendSuccess(res, collection, 'Collection updated');
   }
 

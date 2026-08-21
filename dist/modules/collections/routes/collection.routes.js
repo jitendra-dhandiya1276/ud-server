@@ -6,12 +6,18 @@ const auth_middleware_1 = require("../../../middlewares/auth.middleware");
 const upload_1 = require("../../../utils/upload");
 const router = (0, express_1.Router)();
 const upload = (0, upload_1.createUploader)('categories');
+// Two images per collection: the card shot and the wide hero banner behind the
+// title on the collection page.
+const acceptImages = upload.fields([
+    { name: 'image', maxCount: 1 },
+    { name: 'bannerImage', maxCount: 1 },
+]);
 // Public
 router.get('/', collection_controller_1.collectionController.getAll.bind(collection_controller_1.collectionController));
 router.get('/:slug', collection_controller_1.collectionController.getBySlug.bind(collection_controller_1.collectionController));
 // Admin
-router.post('/', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, upload.single('image'), collection_controller_1.collectionController.create.bind(collection_controller_1.collectionController));
-router.put('/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, upload.single('image'), collection_controller_1.collectionController.update.bind(collection_controller_1.collectionController));
+router.post('/', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, acceptImages, collection_controller_1.collectionController.create.bind(collection_controller_1.collectionController));
+router.put('/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, acceptImages, collection_controller_1.collectionController.update.bind(collection_controller_1.collectionController));
 router.delete('/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, collection_controller_1.collectionController.delete.bind(collection_controller_1.collectionController));
 // Collection ↔ Product management
 router.get('/:id/products', auth_middleware_1.authenticate, auth_middleware_1.isAdmin, collection_controller_1.collectionController.getProducts.bind(collection_controller_1.collectionController));
