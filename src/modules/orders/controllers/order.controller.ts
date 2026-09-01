@@ -35,6 +35,14 @@ export class OrderController {
   }
 
   // Admin
+  async getOrderByIdAdmin(req: Request, res: Response) {
+    // No userId: an admin reads any order. The role guard on the route is what
+    // authorises it, which is why this is a separate endpoint rather than a
+    // branch inside the customer-scoped one.
+    const order = await orderService.getOrderById(req.params.id);
+    return sendSuccess(res, order, 'Order fetched');
+  }
+
   async getAllOrders(req: Request, res: Response) {
     const { page, limit, status, paymentStatus, search, startDate, endDate } = req.query as Record<string, string>;
     const result = await orderService.getAllOrders(Number(page), Number(limit), { status, paymentStatus, search, startDate, endDate });

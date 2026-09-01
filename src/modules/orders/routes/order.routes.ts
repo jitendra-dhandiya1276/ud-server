@@ -8,6 +8,8 @@ const router = Router();
 router.post('/', authenticate, orderController.createOrder.bind(orderController));
 router.get('/my', authenticate, orderController.getMyOrders.bind(orderController));
 router.get('/track/:orderNumber', orderController.trackOrder.bind(orderController));
+// Static before parameterised: /orders/admin/:id must not be read as an id.
+router.get('/admin/:id', authenticate, isAdminOrSubAdmin, orderController.getOrderByIdAdmin.bind(orderController));
 router.get('/:id', authenticate, orderController.getOrderById.bind(orderController));
 router.post('/:id/cancel', authenticate, orderController.cancelOrder.bind(orderController));
 

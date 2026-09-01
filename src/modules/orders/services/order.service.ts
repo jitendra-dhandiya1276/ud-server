@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../../config/prisma';
 import { AppError } from '../../../middlewares/error.middleware';
 import { generateOrderNumber } from '../../../utils/slugify';
@@ -10,8 +11,55 @@ export class OrderService {
     EXPRESS:  249,
   };
 
+  /**
+   * The address stored on the order is a snapshot: the customer may edit or
+   * delete the saved address later, and the order must still show where it
+   * actually went. When a saved address is chosen the browser sends nothing
+   * useful, so the snapshot is built here from the row itself.
+   */
+  private async resolveShippingAddress(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    addressId: string | undefined,
+    posted: any,
+  ) {
+    if (addressId) {
+      const saved = await tx.address.findFirst({ where: { id: addressId, userId } });
+      if (!saved) throw new AppError('Address not found', 400);
+      return {
+        firstName:    saved.firstName,
+        lastName:     saved.lastName,
+        phone:        saved.phone,
+        addressLine1: saved.addressLine1,
+        addressLine2: saved.addressLine2 ?? '',
+        city:         saved.city,
+        state:        saved.state,
+        pincode:      saved.pincode,
+        country:      saved.country,
+      };
+    }
+
+    const a = posted ?? {};
+    const required = ['firstName', 'phone', 'addressLine1', 'city', 'state', 'pincode'];
+    const missing = required.filter(f => !String(a[f] ?? '').trim());
+    if (missing.length) {
+      throw new AppError(`Delivery address is incomplete: ${missing.join(', ')}`, 400);
+    }
+    return {
+      firstName:    String(a.firstName).trim(),
+      lastName:     String(a.lastName ?? '').trim(),
+      phone:        String(a.phone).trim(),
+      addressLine1: String(a.addressLine1).trim(),
+      addressLine2: String(a.addressLine2 ?? '').trim(),
+      city:         String(a.city).trim(),
+      state:        String(a.state).trim(),
+      pincode:      String(a.pincode).trim(),
+      country:      String(a.country ?? 'India').trim(),
+    };
+  }
+
   async createOrder(userId: string, data: {
-    addressId: string;
+    addressId?: string;
     paymentMethod: string;
     shippingMethod?: string;
     couponCode?: string;
@@ -30,9 +78,23 @@ export class OrderService {
           standardShippingCharge: true,
           codShippingCharge: true,
           expressShippingCharge: true,
+          images: { where: { isPrimary: true }, take: 1, select: { url: true } },
         },
       });
       const productMap = new Map(products.map(p => [p.id, p]));
+
+      // Order lines record the size, colour and SKU as they were at purchase.
+      // Reading them back through the variant relation is not enough: a variant
+      // can be renamed or deleted, and the warehouse still has to know which
+      // size to pack.
+      const variantIds = [...new Set(data.items.map(i => i.variantId).filter(Boolean))] as string[];
+      const variants = variantIds.length
+        ? await tx.productVariant.findMany({
+            where: { id: { in: variantIds } },
+            select: { id: true, size: true, color: true, sku: true, image: true },
+          })
+        : [];
+      const variantMap = new Map(variants.map(v => [v.id, v]));
 
       for (const item of data.items) {
         const product = productMap.get(item.productId);
@@ -102,6 +164,10 @@ export class OrderService {
 
       const total = subtotal - couponDiscount + shippingCharge;
 
+      const shippingAddress = await this.resolveShippingAddress(
+        tx, userId, data.addressId, data.shippingAddress,
+      );
+
       // 4. Create order with populated item names
       const order = await tx.order.create({
         data: {
@@ -120,17 +186,25 @@ export class OrderService {
           couponCode: data.couponCode,
           couponDiscount,
           notes: data.notes,
-          shippingAddress: data.shippingAddress,
-          billingAddress: data.billingAddress || data.shippingAddress,
+          shippingAddress,
+          billingAddress: data.billingAddress || shippingAddress,
           items: {
-            create: data.items.map(item => ({
-              productId: item.productId,
-              variantId: item.variantId,
-              quantity: item.quantity,
-              price: item.price,
-              total: item.price * item.quantity,
-              name: productMap.get(item.productId)?.name ?? '',
-            })),
+            create: data.items.map(item => {
+              const product = productMap.get(item.productId);
+              const variant = item.variantId ? variantMap.get(item.variantId) : undefined;
+              return {
+                productId: item.productId,
+                variantId: item.variantId,
+                quantity: item.quantity,
+                price: item.price,
+                total: item.price * item.quantity,
+                name: product?.name ?? '',
+                size:  variant?.size  ?? null,
+                color: variant?.color ?? null,
+                sku:   variant?.sku   ?? null,
+                image: variant?.image || product?.images?.[0]?.url || null,
+              };
+            }),
           },
         },
         include: { items: true, address: true },
@@ -164,6 +238,7 @@ export class OrderService {
         },
         address: true,
         payment: true,
+        user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true, avatar: true } },
       },
     });
 
@@ -215,9 +290,16 @@ export class OrderService {
     if (filters?.status) where.status = filters.status;
     if (filters?.paymentStatus) where.paymentStatus = filters.paymentStatus;
     if (filters?.search) {
+      // Support staff are given a phone number far more often than an order
+      // number, so the search covers every way a customer identifies themselves.
       where.OR = [
         { orderNumber: { contains: filters.search } },
-        { user: { email: { contains: filters.search } } },
+        { user: { email:     { contains: filters.search } } },
+        { user: { phone:     { contains: filters.search } } },
+        { user: { firstName: { contains: filters.search } } },
+        { user: { lastName:  { contains: filters.search } } },
+        { address: { phone:   { contains: filters.search } } },
+        { address: { pincode: { contains: filters.search } } },
       ];
     }
     if (filters?.startDate) where.createdAt = { gte: new Date(filters.startDate) };
@@ -227,8 +309,9 @@ export class OrderService {
       prisma.order.findMany({
         where,
         include: {
-          user: { select: { id: true, firstName: true, lastName: true, email: true } },
+          user: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
           items: { take: 1, include: { product: { include: { images: { where: { isPrimary: true }, take: 1 } } } } },
+          address: true,
           _count: { select: { items: true } },
         },
         orderBy: { createdAt: 'desc' },

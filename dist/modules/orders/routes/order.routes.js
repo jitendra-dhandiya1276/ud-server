@@ -11,6 +11,7 @@ router.get('/track/:orderNumber', order_controller_1.orderController.trackOrder.
 router.get('/:id', auth_middleware_1.authenticate, order_controller_1.orderController.getOrderById.bind(order_controller_1.orderController));
 router.post('/:id/cancel', auth_middleware_1.authenticate, order_controller_1.orderController.cancelOrder.bind(order_controller_1.orderController));
 // Admin routes
+router.get('/admin/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, order_controller_1.orderController.getOrderByIdAdmin.bind(order_controller_1.orderController));
 router.get('/', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, order_controller_1.orderController.getAllOrders.bind(order_controller_1.orderController));
 router.put('/:id/status', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, order_controller_1.orderController.updateOrderStatus.bind(order_controller_1.orderController));
 exports.default = router;
