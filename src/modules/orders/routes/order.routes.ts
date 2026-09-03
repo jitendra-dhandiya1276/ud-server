@@ -16,5 +16,6 @@ router.post('/:id/cancel', authenticate, orderController.cancelOrder.bind(orderC
 // Admin routes
 router.get('/', authenticate, isAdminOrSubAdmin, orderController.getAllOrders.bind(orderController));
 router.put('/:id/status', authenticate, isAdminOrSubAdmin, orderController.updateOrderStatus.bind(orderController));
+router.put('/:id/fulfilment', authenticate, isAdminOrSubAdmin, orderController.updateFulfilment.bind(orderController));
 
 export default router;

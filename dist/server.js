@@ -39,6 +39,7 @@ const INIT_SETTINGS = [
     { key: 'free_shipping_threshold', value: '999', group: 'shipping', label: 'Free Shipping Threshold' },
     { key: 'standard_shipping_rate', value: '99', group: 'shipping', label: 'Standard Shipping Rate' },
     { key: 'express_shipping_rate', value: '149', group: 'shipping', label: 'Express Shipping Rate' },
+    { key: 'self_delivery_pincodes', value: '', group: 'shipping', label: 'Self-Delivery Pincodes' },
 ];
 const INIT_CATEGORIES = [
     { name: 'T-Shirts', desc: 'Premium graphic and plain tees', featured: true },

@@ -8,10 +8,12 @@ const router = (0, express_1.Router)();
 router.post('/', auth_middleware_1.authenticate, order_controller_1.orderController.createOrder.bind(order_controller_1.orderController));
 router.get('/my', auth_middleware_1.authenticate, order_controller_1.orderController.getMyOrders.bind(order_controller_1.orderController));
 router.get('/track/:orderNumber', order_controller_1.orderController.trackOrder.bind(order_controller_1.orderController));
+// Static before parameterised: /orders/admin/:id must not be read as an id.
+router.get('/admin/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, order_controller_1.orderController.getOrderByIdAdmin.bind(order_controller_1.orderController));
 router.get('/:id', auth_middleware_1.authenticate, order_controller_1.orderController.getOrderById.bind(order_controller_1.orderController));
 router.post('/:id/cancel', auth_middleware_1.authenticate, order_controller_1.orderController.cancelOrder.bind(order_controller_1.orderController));
 // Admin routes
-router.get('/admin/:id', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, order_controller_1.orderController.getOrderByIdAdmin.bind(order_controller_1.orderController));
 router.get('/', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, order_controller_1.orderController.getAllOrders.bind(order_controller_1.orderController));
 router.put('/:id/status', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, order_controller_1.orderController.updateOrderStatus.bind(order_controller_1.orderController));
+router.put('/:id/fulfilment', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, order_controller_1.orderController.updateFulfilment.bind(order_controller_1.orderController));
 exports.default = router;

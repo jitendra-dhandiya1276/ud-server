@@ -44,9 +44,18 @@ export class OrderController {
   }
 
   async getAllOrders(req: Request, res: Response) {
-    const { page, limit, status, paymentStatus, search, startDate, endDate } = req.query as Record<string, string>;
-    const result = await orderService.getAllOrders(Number(page), Number(limit), { status, paymentStatus, search, startDate, endDate });
+    const { page, limit, status, paymentStatus, fulfilmentType, search, startDate, endDate } = req.query as Record<string, string>;
+    const result = await orderService.getAllOrders(Number(page), Number(limit), { status, paymentStatus, fulfilmentType, search, startDate, endDate });
     return sendPaginated(res, result.orders, result.total, result.page, result.limit);
+  }
+
+  async updateFulfilment(req: Request, res: Response) {
+    const { fulfilmentType } = req.body;
+    if (fulfilmentType && !['SELF', 'DELHIVERY'].includes(fulfilmentType)) {
+      return sendError(res, 'fulfilmentType must be SELF or DELHIVERY', 400);
+    }
+    const order = await orderService.updateFulfilment(req.params.id, req.body);
+    return sendSuccess(res, order, 'Delivery method updated');
   }
 
   async updateOrderStatus(req: Request, res: Response) {

@@ -47,6 +47,28 @@ class OrderService {
             country: String(a.country ?? 'India').trim(),
         };
     }
+    /**
+     * Which pincodes we deliver ourselves. Stored as a setting rather than in
+     * code because the answer changes with hiring, not with releases: the shop
+     * adds a nearby town the week it has someone to ride there.
+     *
+     * Entries are matched as prefixes, so "3020" covers every pincode in that
+     * block and "302017" covers exactly one.
+     */
+    async selfDeliveryPincodes(tx) {
+        const row = await tx.setting.findUnique({ where: { key: 'self_delivery_pincodes' } });
+        return (row?.value ?? '')
+            .split(/[,\n]/)
+            .map(p => p.replace(/\D/g, ''))
+            .filter(Boolean);
+    }
+    async defaultFulfilment(tx, pincode) {
+        const clean = String(pincode ?? '').replace(/\D/g, '');
+        if (!clean)
+            return 'DELHIVERY';
+        const prefixes = await this.selfDeliveryPincodes(tx);
+        return prefixes.some(p => clean.startsWith(p)) ? 'SELF' : 'DELHIVERY';
+    }
     async createOrder(userId, data) {
         return prisma_1.prisma.$transaction(async (tx) => {
             // 1. Fetch products and validate stock before touching any data
@@ -140,6 +162,7 @@ class OrderService {
             }
             const total = subtotal - couponDiscount + shippingCharge;
             const shippingAddress = await this.resolveShippingAddress(tx, userId, data.addressId, data.shippingAddress);
+            const fulfilmentType = await this.defaultFulfilment(tx, shippingAddress.pincode);
             // 4. Create order with populated item names
             const order = await tx.order.create({
                 data: {
@@ -158,6 +181,7 @@ class OrderService {
                     couponCode: data.couponCode,
                     couponDiscount,
                     notes: data.notes,
+                    fulfilmentType,
                     shippingAddress,
                     billingAddress: data.billingAddress || shippingAddress,
                     items: {
@@ -251,6 +275,8 @@ class OrderService {
             where.status = filters.status;
         if (filters?.paymentStatus)
             where.paymentStatus = filters.paymentStatus;
+        if (filters?.fulfilmentType)
+            where.fulfilmentType = filters.fulfilmentType;
         if (filters?.search) {
             // Support staff are given a phone number far more often than an order
             // number, so the search covers every way a customer identifies themselves.
@@ -286,13 +312,47 @@ class OrderService {
         return { orders, total, page, limit };
     }
     async updateOrderStatus(id, status, trackingNumber, trackingUrl) {
+        const existing = await prisma_1.prisma.order.findUnique({
+            where: { id },
+            select: { dispatchedAt: true },
+        });
+        if (!existing)
+            throw new error_middleware_1.AppError('Order not found', 404);
         return prisma_1.prisma.order.update({
             where: { id },
             data: {
                 status: status,
                 ...(trackingNumber && { trackingNumber }),
                 ...(trackingUrl && { trackingUrl }),
+                // Stamped on the first move out of the building and never overwritten,
+                // so re-applying SHIPPED after a correction does not reset the clock on
+                // "how long did this take to go out?".
+                ...(status === 'SHIPPED' && !existing.dispatchedAt && { dispatchedAt: new Date() }),
                 ...(status === 'DELIVERED' && { deliveryDate: new Date() }),
+            },
+        });
+    }
+    /**
+     * Admin-set delivery method and its details. Switching away from SELF clears
+     * the rider's name and phone: leaving a person's name on an order the courier
+     * is carrying makes the order lie about who has it.
+     */
+    async updateFulfilment(id, data) {
+        const order = await prisma_1.prisma.order.findUnique({ where: { id } });
+        if (!order)
+            throw new error_middleware_1.AppError('Order not found', 404);
+        const type = data.fulfilmentType ?? order.fulfilmentType;
+        const switchingToCourier = type === 'DELHIVERY';
+        return prisma_1.prisma.order.update({
+            where: { id },
+            data: {
+                fulfilmentType: type,
+                deliveryPartnerName: switchingToCourier ? null : data.deliveryPartnerName ?? order.deliveryPartnerName,
+                deliveryPartnerPhone: switchingToCourier ? null : data.deliveryPartnerPhone ?? order.deliveryPartnerPhone,
+                ...(data.deliveryNotes !== undefined && { deliveryNotes: data.deliveryNotes }),
+                ...(data.codCollected !== undefined && { codCollected: data.codCollected }),
+                ...(data.trackingNumber !== undefined && { trackingNumber: data.trackingNumber }),
+                ...(data.trackingUrl !== undefined && { trackingUrl: data.trackingUrl }),
             },
         });
     }
