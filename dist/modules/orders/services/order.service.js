@@ -218,6 +218,15 @@ class OrderService {
             return order;
         });
     }
+    /**
+     * The OTP hash is an internal credential, not order data. It is stripped on
+     * the way out so it cannot appear in a customer payload, an admin payload,
+     * or anything logged downstream from one.
+     */
+    withoutOtpSecret(order) {
+        const { deliveryOtpHash, ...rest } = order;
+        return rest;
+    }
     async getOrderById(id, userId) {
         const where = userId ? { id, userId } : { id };
         const order = await prisma_1.prisma.order.findFirst({
@@ -236,7 +245,7 @@ class OrderService {
         });
         if (!order)
             throw new error_middleware_1.AppError('Order not found', 404);
-        return order;
+        return this.withoutOtpSecret(order);
     }
     async getOrderByNumber(orderNumber) {
         const order = await prisma_1.prisma.order.findFirst({
@@ -249,7 +258,7 @@ class OrderService {
         });
         if (!order)
             throw new error_middleware_1.AppError('Order not found', 404);
-        return order;
+        return this.withoutOtpSecret(order);
     }
     async getUserOrders(userId, page = 1, limit = 10) {
         const { skip } = (0, slugify_2.paginationParams)(page, limit);
@@ -266,7 +275,7 @@ class OrderService {
             }),
             prisma_1.prisma.order.count({ where: { userId } }),
         ]);
-        return { orders, total, page, limit };
+        return { orders: orders.map(o => this.withoutOtpSecret(o)), total, page, limit };
     }
     async getAllOrders(page = 1, limit = 20, filters) {
         const { skip } = (0, slugify_2.paginationParams)(page, limit);
@@ -309,16 +318,40 @@ class OrderService {
             }),
             prisma_1.prisma.order.count({ where }),
         ]);
-        return { orders, total, page, limit };
+        return { orders: orders.map(o => this.withoutOtpSecret(o)), total, page, limit };
     }
-    async updateOrderStatus(id, status, trackingNumber, trackingUrl) {
+    async updateOrderStatus(id, status, trackingNumber, trackingUrl, actor) {
         const existing = await prisma_1.prisma.order.findUnique({
             where: { id },
-            select: { dispatchedAt: true },
+            select: {
+                dispatchedAt: true,
+                fulfilmentType: true,
+                deliveryOtpVerifiedAt: true,
+                deliveryNotes: true,
+            },
         });
         if (!existing)
             throw new error_middleware_1.AppError('Order not found', 404);
-        return prisma_1.prisma.order.update({
+        // On an order one of our own people is carrying, DELIVERED means the
+        // customer read a code back to us. Without that this dropdown would be an
+        // easier way to claim a delivery than actually making one.
+        let overrideNote = null;
+        if (status === 'DELIVERED' &&
+            existing.fulfilmentType === 'SELF' &&
+            !existing.deliveryOtpVerifiedAt) {
+            const isFullAdmin = actor?.role === 'ADMIN' || actor?.role === 'SUPER_ADMIN';
+            const reason = String(actor?.overrideReason ?? '').trim();
+            if (!isFullAdmin) {
+                throw new error_middleware_1.AppError('Confirm this delivery with the code from the customer. Use the Delivery Confirmation card above.', 400);
+            }
+            // The escape hatch for a customer with no email or a dead phone: an
+            // admin may still close the order, but has to say why, on the record.
+            if (reason.length < 5) {
+                throw new error_middleware_1.AppError('No delivery code was confirmed for this order. To mark it delivered anyway, give a reason.', 400);
+            }
+            overrideNote = `[${new Date().toISOString()}] Marked delivered without a code. Reason: ${reason}`;
+        }
+        const updated = await prisma_1.prisma.order.update({
             where: { id },
             data: {
                 status: status,
@@ -329,8 +362,12 @@ class OrderService {
                 // "how long did this take to go out?".
                 ...(status === 'SHIPPED' && !existing.dispatchedAt && { dispatchedAt: new Date() }),
                 ...(status === 'DELIVERED' && { deliveryDate: new Date() }),
+                ...(overrideNote && {
+                    deliveryNotes: [existing.deliveryNotes, overrideNote].filter(Boolean).join('\n'),
+                }),
             },
         });
+        return this.withoutOtpSecret(updated);
     }
     /**
      * Admin-set delivery method and its details. Switching away from SELF clears
@@ -343,7 +380,7 @@ class OrderService {
             throw new error_middleware_1.AppError('Order not found', 404);
         const type = data.fulfilmentType ?? order.fulfilmentType;
         const switchingToCourier = type === 'DELHIVERY';
-        return prisma_1.prisma.order.update({
+        const updated = await prisma_1.prisma.order.update({
             where: { id },
             data: {
                 fulfilmentType: type,
@@ -355,6 +392,7 @@ class OrderService {
                 ...(data.trackingUrl !== undefined && { trackingUrl: data.trackingUrl }),
             },
         });
+        return this.withoutOtpSecret(updated);
     }
     async cancelOrder(id, userId, reason) {
         const order = await prisma_1.prisma.order.findFirst({

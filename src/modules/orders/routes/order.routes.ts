@@ -18,4 +18,9 @@ router.get('/', authenticate, isAdminOrSubAdmin, orderController.getAllOrders.bi
 router.put('/:id/status', authenticate, isAdminOrSubAdmin, orderController.updateOrderStatus.bind(orderController));
 router.put('/:id/fulfilment', authenticate, isAdminOrSubAdmin, orderController.updateFulfilment.bind(orderController));
 
+// Delivery OTP — proof of handover on orders we carry ourselves.
+router.get('/:id/delivery-otp',        authenticate, isAdminOrSubAdmin, orderController.getDeliveryOtpStatus.bind(orderController));
+router.post('/:id/delivery-otp/send',  authenticate, isAdminOrSubAdmin, orderController.sendDeliveryOtp.bind(orderController));
+router.post('/:id/delivery-otp/verify', authenticate, isAdminOrSubAdmin, orderController.verifyDeliveryOtp.bind(orderController));
+
 export default router;

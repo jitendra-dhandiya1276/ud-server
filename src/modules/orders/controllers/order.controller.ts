@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { orderService } from '../services/order.service';
+import { deliveryOtpService } from '../services/deliveryOtp.service';
 import { sendSuccess, sendPaginated, sendError } from '../../../utils/response';
 
 export class OrderController {
@@ -60,9 +61,42 @@ export class OrderController {
 
   async updateOrderStatus(req: Request, res: Response) {
     const { id } = req.params;
-    const { status, trackingNumber, trackingUrl } = req.body;
-    const order = await orderService.updateOrderStatus(id, status, trackingNumber, trackingUrl);
+    const { status, trackingNumber, trackingUrl, overrideReason } = req.body;
+    const order = await orderService.updateOrderStatus(id, status, trackingNumber, trackingUrl, {
+      role: req.user?.dbRole,
+      overrideReason,
+    });
     return sendSuccess(res, order, 'Order status updated');
+  }
+
+  // ─── Delivery OTP (self-delivered orders) ──────────────────────────────
+  // The code itself is never in a response body. The office learns it from
+  // the customer, not from this API.
+
+  async getDeliveryOtpStatus(req: Request, res: Response) {
+    const status = await deliveryOtpService.status(req.params.id);
+    return sendSuccess(res, status);
+  }
+
+  async sendDeliveryOtp(req: Request, res: Response) {
+    const result = await deliveryOtpService.send(req.params.id);
+    return sendSuccess(res, result, `Code sent to the customer (${result.sentTo})`);
+  }
+
+  async verifyDeliveryOtp(req: Request, res: Response) {
+    if (!req.user) return sendError(res, 'Unauthorized', 401);
+    const { otp, codCollected } = req.body;
+    if (!otp) return sendError(res, 'Enter the code the customer read out', 400);
+
+    const cod = codCollected === undefined || codCollected === null || codCollected === ''
+      ? null
+      : Number(codCollected);
+    if (cod !== null && !Number.isFinite(cod)) {
+      return sendError(res, 'Cash collected must be a number', 400);
+    }
+
+    const order = await deliveryOtpService.verify(req.params.id, String(otp), req.user.userId, cod);
+    return sendSuccess(res, order, 'Code verified — order marked delivered');
   }
 }
 

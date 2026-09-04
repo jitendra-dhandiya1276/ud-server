@@ -16,4 +16,8 @@ router.post('/:id/cancel', auth_middleware_1.authenticate, order_controller_1.or
 router.get('/', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, order_controller_1.orderController.getAllOrders.bind(order_controller_1.orderController));
 router.put('/:id/status', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, order_controller_1.orderController.updateOrderStatus.bind(order_controller_1.orderController));
 router.put('/:id/fulfilment', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, order_controller_1.orderController.updateFulfilment.bind(order_controller_1.orderController));
+// Delivery OTP — proof of handover on orders we carry ourselves.
+router.get('/:id/delivery-otp', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, order_controller_1.orderController.getDeliveryOtpStatus.bind(order_controller_1.orderController));
+router.post('/:id/delivery-otp/send', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, order_controller_1.orderController.sendDeliveryOtp.bind(order_controller_1.orderController));
+router.post('/:id/delivery-otp/verify', auth_middleware_1.authenticate, auth_middleware_1.isAdminOrSubAdmin, order_controller_1.orderController.verifyDeliveryOtp.bind(order_controller_1.orderController));
 exports.default = router;

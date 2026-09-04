@@ -480,6 +480,21 @@ model Order {
   /// Cash actually collected at the door on a self-delivered COD order.
   codCollected         Decimal?       @db.Decimal(10, 2)
   deliveryNotes        String?        @db.Text
+
+  // Delivery OTP — the proof that the parcel reached the customer's hands.
+  // Only a hash is kept: nobody with database access, and no admin screen,
+  // can read the code the customer was sent. That is the whole point — the
+  // office can only confirm a delivery by being told the code by the customer.
+  deliveryOtpHash       String?
+  deliveryOtpExpiresAt  DateTime?
+  deliveryOtpSentAt     DateTime?
+  deliveryOtpSentCount  Int       @default(0)
+  deliveryOtpAttempts   Int       @default(0)
+  /// Where the last code was sent, for the audit trail: "EMAIL" or "SMS".
+  deliveryOtpChannel    String?
+  deliveryOtpVerifiedAt DateTime?
+  /// The admin user who typed the code in.
+  deliveryOtpVerifiedBy String?
   shippingAddress      Json
   billingAddress       Json?
   createdAt            DateTime       @default(now())

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.orderController = exports.OrderController = void 0;
 const order_service_1 = require("../services/order.service");
+const deliveryOtp_service_1 = require("../services/deliveryOtp.service");
 const response_1 = require("../../../utils/response");
 class OrderController {
     async createOrder(req, res) {
@@ -57,9 +58,38 @@ class OrderController {
     }
     async updateOrderStatus(req, res) {
         const { id } = req.params;
-        const { status, trackingNumber, trackingUrl } = req.body;
-        const order = await order_service_1.orderService.updateOrderStatus(id, status, trackingNumber, trackingUrl);
+        const { status, trackingNumber, trackingUrl, overrideReason } = req.body;
+        const order = await order_service_1.orderService.updateOrderStatus(id, status, trackingNumber, trackingUrl, {
+            role: req.user?.dbRole,
+            overrideReason,
+        });
         return (0, response_1.sendSuccess)(res, order, 'Order status updated');
+    }
+    // ─── Delivery OTP (self-delivered orders) ──────────────────────────────
+    // The code itself is never in a response body. The office learns it from
+    // the customer, not from this API.
+    async getDeliveryOtpStatus(req, res) {
+        const status = await deliveryOtp_service_1.deliveryOtpService.status(req.params.id);
+        return (0, response_1.sendSuccess)(res, status);
+    }
+    async sendDeliveryOtp(req, res) {
+        const result = await deliveryOtp_service_1.deliveryOtpService.send(req.params.id);
+        return (0, response_1.sendSuccess)(res, result, `Code sent to the customer (${result.sentTo})`);
+    }
+    async verifyDeliveryOtp(req, res) {
+        if (!req.user)
+            return (0, response_1.sendError)(res, 'Unauthorized', 401);
+        const { otp, codCollected } = req.body;
+        if (!otp)
+            return (0, response_1.sendError)(res, 'Enter the code the customer read out', 400);
+        const cod = codCollected === undefined || codCollected === null || codCollected === ''
+            ? null
+            : Number(codCollected);
+        if (cod !== null && !Number.isFinite(cod)) {
+            return (0, response_1.sendError)(res, 'Cash collected must be a number', 400);
+        }
+        const order = await deliveryOtp_service_1.deliveryOtpService.verify(req.params.id, String(otp), req.user.userId, cod);
+        return (0, response_1.sendSuccess)(res, order, 'Code verified — order marked delivered');
     }
 }
 exports.OrderController = OrderController;
