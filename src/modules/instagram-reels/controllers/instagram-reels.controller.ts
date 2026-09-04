@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../../../config/prisma';
 import fs from 'fs';
 import path from 'path';
-import { getImageUrl, deleteUploadByUrl } from '../../../utils/upload';
+import { getImageUrl, deleteUploadByUrl, discardUploads } from '../../../utils/upload';
 import { checkVideoResolution, extractPoster, optimizeVideoForWeb } from '../../../utils/video';
 import { logger } from '../../../utils/logger';
 
@@ -146,6 +146,7 @@ export class InstagramReelsController {
       });
       res.json({ success: true, data: reels });
     } catch (err) {
+      logger.error(`Reel fetch failed: ${(err as Error).message}`);
       res.status(500).json({ success: false, message: 'Failed to fetch reels' });
     }
   }
@@ -168,6 +169,7 @@ export class InstagramReelsController {
       });
       res.json({ success: true, data: reels });
     } catch (err) {
+      logger.error(`Reel fetch failed: ${(err as Error).message}`);
       res.status(500).json({ success: false, message: 'Failed to fetch reels' });
     }
   }
@@ -183,6 +185,9 @@ export class InstagramReelsController {
       // The video IS the reel now — the Instagram embed cannot be styled into
       // the tile, so a reel without its own video has nothing to play.
       if (!media.videoUrl) {
+        // A poster may already be on disk from this same request; without this
+        // a rejected submission leaves it there with nothing pointing at it.
+        await discardUploads(req);
         return res.status(400).json({ success: false, message: 'A video file is required.' });
       }
       const reel = await prisma.instagramReel.create({
@@ -205,6 +210,8 @@ export class InstagramReelsController {
         void finaliseReelMedia(reel.id, media.videoPath, !media.hasCustomThumb);
       }
     } catch (err) {
+      logger.error(`Reel create failed: ${(err as Error).message}`, { stack: (err as Error).stack });
+      await discardUploads(req);
       res.status(500).json({ success: false, message: 'Failed to create reel' });
     }
   }
@@ -252,6 +259,8 @@ export class InstagramReelsController {
         void finaliseReelMedia(reel.id, media.videoPath, !media.hasCustomThumb);
       }
     } catch (err) {
+      logger.error(`Reel update failed: ${(err as Error).message}`, { stack: (err as Error).stack });
+      await discardUploads(req);
       res.status(500).json({ success: false, message: 'Failed to update reel' });
     }
   }
@@ -273,6 +282,7 @@ export class InstagramReelsController {
       }
       res.json({ success: true, message: 'Reel deleted' });
     } catch (err) {
+      logger.error(`Reel delete failed: ${(err as Error).message}`);
       res.status(500).json({ success: false, message: 'Failed to delete reel' });
     }
   }
@@ -288,6 +298,7 @@ export class InstagramReelsController {
       );
       res.json({ success: true });
     } catch (err) {
+      logger.error(`Reel reorder failed: ${(err as Error).message}`);
       res.status(500).json({ success: false, message: 'Failed to reorder reels' });
     }
   }

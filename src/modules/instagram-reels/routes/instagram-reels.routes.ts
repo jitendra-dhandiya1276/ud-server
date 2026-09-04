@@ -16,10 +16,16 @@ const router = Router();
  * the only way to actually show it, and the storefront already prefers
  * `videoUrl` (a real autoplaying <video>) over the embed when one is present.
  *
- * 60 MB covers a typical 15-30s vertical reel; images fall back to the normal
- * upload ceiling.
+ * The ceiling is deliberately generous. A phone records a 30s vertical reel at
+ * 1080p60 or 4K and lands well past 60 MB, which is where uploads were being
+ * refused — and the original is temporary anyway: `finaliseReelMedia` transcodes
+ * it down to a ~720p rendition and deletes the source, so a large upload costs
+ * disk only for the length of the encode, not forever.
+ *
+ * Keep nginx's `client_max_body_size` above this or nginx rejects the request
+ * before Express ever sees it, and the admin gets a bare 413 with no message.
  */
-const MAX_VIDEO_BYTES = parseInt(process.env.MAX_VIDEO_SIZE || '62914560', 10);
+const MAX_VIDEO_BYTES = parseInt(process.env.MAX_VIDEO_SIZE || '209715200', 10); // 200 MB
 
 const upload = createUploader('reels', MAX_VIDEO_BYTES, [
   ...VIDEO_MIME_TYPES,

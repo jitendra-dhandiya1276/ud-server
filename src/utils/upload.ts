@@ -96,6 +96,40 @@ export const handleUpload = (
 };
 
 /**
+ * Every file multer attached to this request, however it was attached.
+ *
+ * `.array()` puts them in an array, `.fields()` in an object keyed by field
+ * name, and `.single()` on `req.file`. Cleanup paths that only knew one shape
+ * silently left the others on disk.
+ */
+export const uploadedFiles = (req: Request): Express.Multer.File[] => {
+  const raw = req.files as
+    | Express.Multer.File[]
+    | Record<string, Express.Multer.File[]>
+    | undefined;
+
+  const collected: Express.Multer.File[] = Array.isArray(raw)
+    ? raw
+    : raw
+      ? Object.values(raw).flat()
+      : [];
+  if (req.file) collected.push(req.file);
+  return collected;
+};
+
+/**
+ * Delete everything this request uploaded. Called whenever a handler rejects
+ * after multer has already written to disk — without it a refused upload keeps
+ * its bytes forever, and a 60 MB reel video is an expensive thing to leak.
+ */
+export const discardUploads = async (req: Request): Promise<void> => {
+  const files = uploadedFiles(req);
+  if (!files.length) return;
+  await Promise.all(files.map(f => fs.promises.unlink(f.path).catch(() => {})));
+  logger.info(`Discarded ${files.length} uploaded file(s) after a rejected request`);
+};
+
+/**
  * Reject uploads whose source resolution is too low for where they will be
  * displayed.
  *
@@ -123,20 +157,7 @@ export const validateUploadResolution = (
   fieldMinimums: Record<string, number> = {}
 ) => {
   return async (req: Request, res: Response, next: NextFunction) => {
-    // multer exposes req.files as an ARRAY for .array() but as an OBJECT keyed
-    // by field name for .fields(). Handle both, or routes using .fields()
-    // silently validate nothing.
-    const raw = req.files as
-      | Express.Multer.File[]
-      | Record<string, Express.Multer.File[]>
-      | undefined;
-
-    const collected: Express.Multer.File[] = Array.isArray(raw)
-      ? raw
-      : raw
-        ? Object.values(raw).flat()
-        : [];
-    if (req.file) collected.push(req.file);
+    const collected = uploadedFiles(req);
 
     // Only images have a resolution to check. A reel's video shares the same
     // request, and running it through Sharp would fail and reject the upload.
@@ -162,8 +183,10 @@ export const validateUploadResolution = (
     }
 
     // Reject: remove every file from this request so half-accepted uploads
-    // never leave orphans on disk.
-    await Promise.all(files.map(f => fs.promises.unlink(f.path).catch(() => {})));
+    // never leave orphans on disk. `collected`, not `files` — `files` is only
+    // the images that were checked, so rejecting a reel's poster used to strip
+    // the poster and keep the video it arrived with.
+    await Promise.all(collected.map(f => fs.promises.unlink(f.path).catch(() => {})));
 
     return res.status(400).json({
       success: false,

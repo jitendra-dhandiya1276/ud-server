@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteUploadByUrl = exports.deleteFile = exports.getImageUrl = exports.optimizeImage = exports.validateUploadResolution = exports.handleUpload = exports.createUploader = exports.VIDEO_MIME_TYPES = void 0;
+exports.deleteUploadByUrl = exports.deleteFile = exports.getImageUrl = exports.optimizeImage = exports.validateUploadResolution = exports.discardUploads = exports.uploadedFiles = exports.handleUpload = exports.createUploader = exports.VIDEO_MIME_TYPES = void 0;
 const multer_1 = __importDefault(require("multer"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
@@ -83,6 +83,38 @@ const handleUpload = (middleware, maxFileSizeBytes) => {
 };
 exports.handleUpload = handleUpload;
 /**
+ * Every file multer attached to this request, however it was attached.
+ *
+ * `.array()` puts them in an array, `.fields()` in an object keyed by field
+ * name, and `.single()` on `req.file`. Cleanup paths that only knew one shape
+ * silently left the others on disk.
+ */
+const uploadedFiles = (req) => {
+    const raw = req.files;
+    const collected = Array.isArray(raw)
+        ? raw
+        : raw
+            ? Object.values(raw).flat()
+            : [];
+    if (req.file)
+        collected.push(req.file);
+    return collected;
+};
+exports.uploadedFiles = uploadedFiles;
+/**
+ * Delete everything this request uploaded. Called whenever a handler rejects
+ * after multer has already written to disk — without it a refused upload keeps
+ * its bytes forever, and a 60 MB reel video is an expensive thing to leak.
+ */
+const discardUploads = async (req) => {
+    const files = (0, exports.uploadedFiles)(req);
+    if (!files.length)
+        return;
+    await Promise.all(files.map(f => fs_1.default.promises.unlink(f.path).catch(() => { })));
+    logger_1.logger.info(`Discarded ${files.length} uploaded file(s) after a rejected request`);
+};
+exports.discardUploads = discardUploads;
+/**
  * Reject uploads whose source resolution is too low for where they will be
  * displayed.
  *
@@ -108,17 +140,7 @@ const validateUploadResolution = (folder,
  */
 fieldMinimums = {}) => {
     return async (req, res, next) => {
-        // multer exposes req.files as an ARRAY for .array() but as an OBJECT keyed
-        // by field name for .fields(). Handle both, or routes using .fields()
-        // silently validate nothing.
-        const raw = req.files;
-        const collected = Array.isArray(raw)
-            ? raw
-            : raw
-                ? Object.values(raw).flat()
-                : [];
-        if (req.file)
-            collected.push(req.file);
+        const collected = (0, exports.uploadedFiles)(req);
         // Only images have a resolution to check. A reel's video shares the same
         // request, and running it through Sharp would fail and reject the upload.
         const files = collected.filter(f => f.mimetype.startsWith('image/'));
@@ -140,8 +162,10 @@ fieldMinimums = {}) => {
             return next();
         }
         // Reject: remove every file from this request so half-accepted uploads
-        // never leave orphans on disk.
-        await Promise.all(files.map(f => fs_1.default.promises.unlink(f.path).catch(() => { })));
+        // never leave orphans on disk. `collected`, not `files` — `files` is only
+        // the images that were checked, so rejecting a reel's poster used to strip
+        // the poster and keep the video it arrived with.
+        await Promise.all(collected.map(f => fs_1.default.promises.unlink(f.path).catch(() => { })));
         return res.status(400).json({
             success: false,
             message: failures.length === 1
