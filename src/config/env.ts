@@ -80,6 +80,13 @@ export const config = {
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
   },
 
+  // Brevo (formerly Sendinblue). Their HTTP API is preferred over their SMTP
+  // relay: a delivery code is sent while somebody waits at a door, and the API
+  // both answers faster and says *why* it refused, which SMTP does not.
+  brevo: {
+    apiKey: process.env.BREVO_API_KEY || '',
+  },
+
   smtp: {
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.SMTP_PORT || '587', 10),

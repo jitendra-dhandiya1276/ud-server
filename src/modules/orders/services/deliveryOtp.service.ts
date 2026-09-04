@@ -114,7 +114,7 @@ export class DeliveryOtpService {
     }
     if (!isMailConfigured()) {
       throw new AppError(
-        `Email is not set up on the server yet, so the code cannot be sent (missing ${missingMailConfig().join(', ')}).`,
+        `Email is not set up on the server yet, so the code cannot be sent. Set ${missingMailConfig().join(' ')}.`,
         503,
       );
     }
@@ -151,7 +151,17 @@ export class DeliveryOtpService {
 
     // Sent before it is stored: a code the customer never received must not
     // become the one the panel will accept.
-    await sendMail({ to: email, subject: mail.subject, html: mail.html, text: mail.text });
+    try {
+      await sendMail({ to: email, subject: mail.subject, html: mail.html, text: mail.text });
+    } catch (err: any) {
+      // The provider's own reason is the only useful thing here — a verified
+      // sender missing in Brevo, a rejected key. Swallowing it would leave the
+      // office pressing a button that never explains itself.
+      logger.error('Delivery OTP could not be sent', {
+        orderId, orderNumber: order.orderNumber, error: err?.message,
+      });
+      throw new AppError(`The code could not be sent: ${err?.message ?? 'email failed'}`, 502);
+    }
 
     const updated = await prisma.order.update({
       where: { id: orderId },

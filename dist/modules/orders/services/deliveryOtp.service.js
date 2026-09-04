@@ -97,7 +97,7 @@ class DeliveryOtpService {
             throw new error_middleware_1.AppError(`An order marked ${order.status} cannot be handed over.`, 400);
         }
         if (!(0, mailer_1.isMailConfigured)()) {
-            throw new error_middleware_1.AppError(`Email is not set up on the server yet, so the code cannot be sent (missing ${(0, mailer_1.missingMailConfig)().join(', ')}).`, 503);
+            throw new error_middleware_1.AppError(`Email is not set up on the server yet, so the code cannot be sent. Set ${(0, mailer_1.missingMailConfig)().join(' ')}.`, 503);
         }
         const now = new Date();
         // A live code is not replaced on every click: the customer may already be
@@ -124,7 +124,18 @@ class DeliveryOtpService {
         });
         // Sent before it is stored: a code the customer never received must not
         // become the one the panel will accept.
-        await (0, mailer_1.sendMail)({ to: email, subject: mail.subject, html: mail.html, text: mail.text });
+        try {
+            await (0, mailer_1.sendMail)({ to: email, subject: mail.subject, html: mail.html, text: mail.text });
+        }
+        catch (err) {
+            // The provider's own reason is the only useful thing here — a verified
+            // sender missing in Brevo, a rejected key. Swallowing it would leave the
+            // office pressing a button that never explains itself.
+            logger_1.logger.error('Delivery OTP could not be sent', {
+                orderId, orderNumber: order.orderNumber, error: err?.message,
+            });
+            throw new error_middleware_1.AppError(`The code could not be sent: ${err?.message ?? 'email failed'}`, 502);
+        }
         const updated = await prisma_1.prisma.order.update({
             where: { id: orderId },
             data: {
