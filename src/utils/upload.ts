@@ -31,17 +31,38 @@ const storage = (folder: UploadFolder) =>
   });
 
 /** Video types accepted for Instagram reels. */
-export const VIDEO_MIME_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v'];
+export const VIDEO_MIME_TYPES = [
+  'video/mp4', 'video/webm', 'video/quicktime', 'video/x-m4v',
+  'video/x-matroska', 'video/3gpp', 'video/3gpp2', 'video/x-msvideo', 'video/mpeg',
+];
+
+/**
+ * Browsers are unreliable about video MIME types. Phones and several Android
+ * browsers hand a perfectly good reel over as `application/octet-stream`, or
+ * with no type at all, so a MIME-only allow-list refuses real uploads for a
+ * reason the admin cannot act on.
+ *
+ * When the type is that vague, the extension decides — and ffprobe still has
+ * the final say downstream, since it is the only check here that actually
+ * opens the file and confirms it is playable.
+ */
+const AMBIGUOUS_MIME_TYPES = ['application/octet-stream', 'binary/octet-stream', ''];
+const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.3gp', '.avi', '.mpeg', '.mpg'];
 
 const makeFileFilter = (allowed?: string[]) =>
   (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
     const permitted = allowed ?? config.upload.allowedTypes;
-    if (permitted.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      const kind = permitted.some(t => t.startsWith('video/')) ? 'images or videos' : 'images';
-      cb(new Error(`Invalid file type "${file.mimetype}". Only ${kind} are allowed.`));
+    const videosWelcome = permitted.some(t => t.startsWith('video/'));
+
+    if (permitted.includes(file.mimetype)) return cb(null, true);
+
+    if (videosWelcome && AMBIGUOUS_MIME_TYPES.includes(file.mimetype ?? '')) {
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      if (VIDEO_EXTENSIONS.includes(ext)) return cb(null, true);
     }
+
+    const kind = videosWelcome ? 'images or videos' : 'images';
+    cb(new Error(`Invalid file type "${file.mimetype}". Only ${kind} are allowed.`));
   };
 
 const fileFilter = makeFileFilter();

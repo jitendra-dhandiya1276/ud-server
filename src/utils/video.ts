@@ -119,7 +119,24 @@ export interface VideoCheck {
  */
 export const checkVideoResolution = async (absolutePath: string): Promise<VideoCheck> => {
   const info = await probeVideo(absolutePath);
-  if (!info) return { ok: true, info: null };
+
+  if (!info) {
+    // `probeVideo` returns null for two very different reasons, and treating
+    // them the same let unplayable files through: with ffmpeg absent there is
+    // simply nothing to check, but with ffmpeg present a file it cannot read
+    // is a file no browser will play either. The upload is now refused rather
+    // than stored as a reel that renders a black tile.
+    if (await hasFfmpeg()) {
+      return {
+        ok: false,
+        info: null,
+        message:
+          'That file could not be read as a video. Upload the original clip — ' +
+          'MP4 or MOV works best. A renamed file or a partial download will fail here.',
+      };
+    }
+    return { ok: true, info: null };
+  }
 
   if (info.width < MIN_VIDEO_WIDTH) {
     return {
