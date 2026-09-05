@@ -7,7 +7,11 @@ exports.deliveryOtpEmail = deliveryOtpEmail;
  * be impossible to miss.
  */
 function deliveryOtpEmail(d) {
-    const subject = `${d.otp} is your delivery code for order ${d.orderNumber}`;
+    // The code is deliberately NOT in the subject. Subjects are stored and
+    // displayed by the mail provider's own dashboard, so putting it there would
+    // let anyone with provider access read delivery codes — which is exactly the
+    // thing this feature exists to prevent. It stays in the body only.
+    const subject = `Delivery code for order ${d.orderNumber}`;
     const text = [
         `Hi ${d.customerName},`,
         ``,
