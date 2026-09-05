@@ -5,13 +5,15 @@ import { validate } from '../../../middlewares/validate.middleware';
 import {
   registerSchema, loginSchema, googleAuthSchema,
   forgotPasswordSchema, resetPasswordSchema, changePasswordSchema,
-  refreshTokenSchema,
+  refreshTokenSchema, verifyEmailSchema, resendVerificationSchema,
 } from '../validators/auth.validators';
 
 const router = Router();
 
 router.post('/register', validate(registerSchema), authController.register.bind(authController));
 router.post('/login', validate(loginSchema), authController.login.bind(authController));
+router.post('/verify-email', validate(verifyEmailSchema), authController.verifyEmail.bind(authController));
+router.post('/resend-verification', validate(resendVerificationSchema), authController.resendVerification.bind(authController));
 router.post('/google', validate(googleAuthSchema), authController.googleAuth.bind(authController));
 router.post('/refresh', validate(refreshTokenSchema), authController.refresh.bind(authController));
 router.post('/logout', authenticate, authController.logout.bind(authController));

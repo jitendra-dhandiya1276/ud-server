@@ -34,3 +34,14 @@ export const changePasswordSchema = Joi.object({
 export const refreshTokenSchema = Joi.object({
   refreshToken: Joi.string().required(),
 });
+
+export const verifyEmailSchema = Joi.object({
+  email: Joi.string().email().required(),
+  otp: Joi.string().trim().pattern(/^\d{6}$/).required().messages({
+    'string.pattern.base': 'Enter the 6-digit code from your email',
+  }),
+});
+
+export const resendVerificationSchema = Joi.object({
+  email: Joi.string().email().required(),
+});

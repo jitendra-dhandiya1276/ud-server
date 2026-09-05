@@ -6,10 +6,23 @@ import { config } from '../../../config/env';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../../utils/jwt';
 import { AppError } from '../../../middlewares/error.middleware';
 import { UserRole } from '@prisma/client';
+import { generateOtp, hashOtp, otpMatches } from '../../../utils/otp';
+import { sendMail, isMailConfigured } from '../../../config/mailer';
+import { verifyEmailTemplate } from '../emails/verifyEmail.template';
+import { logger } from '../../../utils/logger';
 
 const googleClient = new OAuth2Client(config.google.clientId);
 
 export class AuthService {
+  /**
+   * Sign-up creates the account but does NOT sign anyone in. A code goes to
+   * the address given, and only entering that code produces tokens — so an
+   * account can never reach a working state on an address its owner cannot
+   * read. See `verifyEmail`.
+   *
+   * When email is not configured at all the account is created verified: a
+   * misconfigured server should not silently make registration impossible.
+   */
   async register(data: {
     firstName: string;
     lastName: string;
@@ -21,30 +34,171 @@ export class AuthService {
     if (existing) throw new AppError('Email already registered', 409);
 
     const hashedPassword = await bcrypt.hash(data.password, config.bcryptRounds);
+    const canVerify = isMailConfigured() && !config.isDev;
 
     const user = await prisma.user.create({
       data: {
         ...data,
         password: hashedPassword,
-        isVerified: config.isDev,
+        isVerified: !canVerify,
+        ...(canVerify ? {} : { emailVerifiedAt: new Date() }),
       },
       select: { id: true, email: true, firstName: true, lastName: true, role: true },
     });
 
-    const tokens = this.generateTokens(user);
+    if (!canVerify) {
+      const tokens = this.generateTokens(user);
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { refreshToken: tokens.refreshToken },
+      });
+      return { user, ...tokens, requiresVerification: false as const };
+    }
+
+    await this.sendEmailOtp(user.id, user.email, user.firstName);
+    return { user, requiresVerification: true as const };
+  }
+
+  // ─── Email verification ────────────────────────────────────────────────
+
+  private static readonly OTP_TTL_MINUTES = 15;
+  private static readonly OTP_RESEND_COOLDOWN_S = 60;
+  private static readonly OTP_MAX_SENDS = 5;
+  private static readonly OTP_MAX_ATTEMPTS = 5;
+
+  /** Generate, store the hash, and mail the code. Never returns the code. */
+  private async sendEmailOtp(userId: string, email: string, firstName: string) {
+    const code = generateOtp(6);
+    const expiresAt = new Date(Date.now() + AuthService.OTP_TTL_MINUTES * 60_000);
+
+    const mail = verifyEmailTemplate({
+      customerName: firstName || 'there',
+      otp: code,
+      minutesValid: AuthService.OTP_TTL_MINUTES,
+      storeName: config.smtp.fromName,
+    });
+
+    // Sent before it is stored: a code the customer never received must not
+    // become the one that works.
+    await sendMail({ to: email, subject: mail.subject, html: mail.html, text: mail.text });
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        emailOtpHash: hashOtp(userId, code),
+        emailOtpExpiresAt: expiresAt,
+        emailOtpSentAt: new Date(),
+        emailOtpSentCount: { increment: 1 },
+        emailOtpAttempts: 0,
+      },
+    });
+
+    logger.info('Verification code sent', { userId });
+    return expiresAt;
+  }
+
+  /** The code is what signs them in — verifying and logging in are one step. */
+  async verifyEmail(email: string, submitted: string) {
+    const user = await prisma.user.findUnique({
+      where: { email, deletedAt: null },
+      select: {
+        id: true, email: true, firstName: true, lastName: true, role: true,
+        isVerified: true, isActive: true,
+        emailOtpHash: true, emailOtpExpiresAt: true, emailOtpAttempts: true,
+      },
+    });
+
+    if (!user) throw new AppError('No account found for that email', 404);
+    if (!user.isActive) throw new AppError('Account disabled. Contact support.', 403);
+    if (user.isVerified) throw new AppError('This email is already verified. Please sign in.', 400);
+    if (!user.emailOtpHash || !user.emailOtpExpiresAt) {
+      throw new AppError('No verification code has been sent. Request a new one.', 400);
+    }
+    if (user.emailOtpExpiresAt.getTime() < Date.now()) {
+      throw new AppError('That code has expired. Request a new one.', 400);
+    }
+    if (user.emailOtpAttempts >= AuthService.OTP_MAX_ATTEMPTS) {
+      throw new AppError('Too many incorrect codes. Request a new one.', 429);
+    }
+
+    const code = String(submitted ?? '').replace(/\D/g, '');
+    if (code.length !== 6) throw new AppError('Enter the 6-digit code from your email.', 400);
+
+    if (!otpMatches(user.id, code, user.emailOtpHash)) {
+      const { emailOtpAttempts } = await prisma.user.update({
+        where: { id: user.id },
+        data: { emailOtpAttempts: { increment: 1 } },
+        select: { emailOtpAttempts: true },
+      });
+      const left = Math.max(0, AuthService.OTP_MAX_ATTEMPTS - emailOtpAttempts);
+      throw new AppError(
+        left > 0
+          ? `That code is not right. ${left} ${left === 1 ? 'try' : 'tries'} left.`
+          : 'That code is not right, and there are no tries left. Request a new one.',
+        400,
+      );
+    }
+
+    const account = {
+      id: user.id, email: user.email, firstName: user.firstName,
+      lastName: user.lastName, role: user.role,
+    };
+    const tokens = this.generateTokens(account);
 
     await prisma.user.update({
       where: { id: user.id },
-      data: { refreshToken: tokens.refreshToken },
+      data: {
+        isVerified: true,
+        emailVerifiedAt: new Date(),
+        refreshToken: tokens.refreshToken,
+        lastLoginAt: new Date(),
+        // Spent. Keeping the hash would let the same code be replayed.
+        emailOtpHash: null,
+        emailOtpExpiresAt: null,
+        emailOtpAttempts: 0,
+      },
     });
 
-    return { user, ...tokens };
+    logger.info('Email verified', { userId: user.id });
+    return { user: account, ...tokens };
+  }
+
+  /** Re-send, rate limited. Says nothing about whether the address exists. */
+  async resendEmailOtp(email: string) {
+    const user = await prisma.user.findUnique({
+      where: { email, deletedAt: null },
+      select: {
+        id: true, email: true, firstName: true, isVerified: true, isActive: true,
+        emailOtpSentAt: true, emailOtpSentCount: true,
+      },
+    });
+
+    // Deliberately vague: confirming which addresses have accounts would turn
+    // this endpoint into a way to enumerate the customer list.
+    if (!user || user.isVerified || !user.isActive) return { sent: false };
+
+    if (user.emailOtpSentAt) {
+      const waited = Date.now() - user.emailOtpSentAt.getTime();
+      if (waited < AuthService.OTP_RESEND_COOLDOWN_S * 1000) {
+        const seconds = Math.ceil((AuthService.OTP_RESEND_COOLDOWN_S * 1000 - waited) / 1000);
+        throw new AppError(`A code was just sent. Try again in ${seconds}s.`, 429);
+      }
+    }
+    if (user.emailOtpSentCount >= AuthService.OTP_MAX_SENDS) {
+      throw new AppError('Too many codes requested. Contact support.', 429);
+    }
+
+    await this.sendEmailOtp(user.id, user.email, user.firstName);
+    return { sent: true };
   }
 
   async login(email: string, password: string) {
     const user = await prisma.user.findUnique({
       where: { email, deletedAt: null },
-      select: { id: true, email: true, firstName: true, lastName: true, role: true, password: true, isActive: true },
+      select: {
+        id: true, email: true, firstName: true, lastName: true, role: true,
+        password: true, isActive: true, isVerified: true,
+      },
     });
 
     if (!user || !user.password) throw new AppError('Invalid credentials', 401);
@@ -52,6 +206,15 @@ export class AuthService {
 
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) throw new AppError('Invalid credentials', 401);
+
+    // Checked only after the password, so this never reveals whether an
+    // address has an account to someone who cannot already sign in.
+    if (!user.isVerified) {
+      const err = new AppError('Please verify your email to continue.', 403);
+      (err as any).code = 'EMAIL_NOT_VERIFIED';
+      (err as any).email = user.email;
+      throw err;
+    }
 
     const tokens = this.generateTokens(user);
 

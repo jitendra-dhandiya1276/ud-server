@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.refreshTokenSchema = exports.changePasswordSchema = exports.resetPasswordSchema = exports.forgotPasswordSchema = exports.googleAuthSchema = exports.loginSchema = exports.registerSchema = void 0;
+exports.resendVerificationSchema = exports.verifyEmailSchema = exports.refreshTokenSchema = exports.changePasswordSchema = exports.resetPasswordSchema = exports.forgotPasswordSchema = exports.googleAuthSchema = exports.loginSchema = exports.registerSchema = void 0;
 const joi_1 = __importDefault(require("joi"));
 exports.registerSchema = joi_1.default.object({
     firstName: joi_1.default.string().min(2).max(50).required(),
@@ -32,4 +32,13 @@ exports.changePasswordSchema = joi_1.default.object({
 });
 exports.refreshTokenSchema = joi_1.default.object({
     refreshToken: joi_1.default.string().required(),
+});
+exports.verifyEmailSchema = joi_1.default.object({
+    email: joi_1.default.string().email().required(),
+    otp: joi_1.default.string().trim().pattern(/^\d{6}$/).required().messages({
+        'string.pattern.base': 'Enter the 6-digit code from your email',
+    }),
+});
+exports.resendVerificationSchema = joi_1.default.object({
+    email: joi_1.default.string().email().required(),
 });

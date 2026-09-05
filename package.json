@@ -16,7 +16,8 @@
     "images:warm": "ts-node --transpile-only src/scripts/warmImageCache.ts",
     "logo:update": "ts-node --transpile-only src/scripts/updateLogoSettings.ts",
     "images:audit": "ts-node --transpile-only src/scripts/auditImageQuality.ts",
-    "import:shopify": "ts-node --transpile-only src/scripts/importShopify.ts"
+    "import:shopify": "ts-node --transpile-only src/scripts/importShopify.ts",
+    "users:verify-existing": "ts-node --transpile-only src/scripts/verifyExistingUsers.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

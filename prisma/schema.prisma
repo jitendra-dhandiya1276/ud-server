@@ -28,6 +28,16 @@ model User {
   refreshToken        String?   @db.Text
   passwordResetToken  String?
   passwordResetExpiry DateTime?
+
+  // Email verification at sign-up. Only the hash is stored, so nobody with
+  // database access can read the code a customer was sent — the same rule the
+  // delivery codes follow.
+  emailOtpHash        String?
+  emailOtpExpiresAt   DateTime?
+  emailOtpSentAt      DateTime?
+  emailOtpSentCount   Int       @default(0)
+  emailOtpAttempts    Int       @default(0)
+
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
   deletedAt           DateTime?

@@ -6,7 +6,24 @@ import { prisma } from '../../../config/prisma';
 export class AuthController {
   async register(req: Request, res: Response) {
     const result = await authService.register(req.body);
-    return sendSuccess(res, result, 'Registration successful', 201);
+    const message = result.requiresVerification
+      ? 'Check your email for the verification code'
+      : 'Registration successful';
+    return sendSuccess(res, result, message, 201);
+  }
+
+  async verifyEmail(req: Request, res: Response) {
+    const { email, otp } = req.body;
+    const result = await authService.verifyEmail(email, otp);
+    return sendSuccess(res, result, 'Email verified');
+  }
+
+  async resendVerification(req: Request, res: Response) {
+    const { email } = req.body;
+    await authService.resendEmailOtp(email);
+    // Always the same answer: a different one would confirm which addresses
+    // have accounts to anyone who cared to ask.
+    return sendSuccess(res, { sent: true }, 'If that account needs verifying, a new code is on its way');
   }
 
   async login(req: Request, res: Response) {
