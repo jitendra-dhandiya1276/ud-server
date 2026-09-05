@@ -37,6 +37,7 @@ import seoRoutes from './modules/seo/routes/seo.routes';
 import mediaRoutes from './modules/media/routes/media.routes';
 import storeRoutes from './modules/stores/routes/store.routes';
 import instagramReelsRoutes from './modules/instagram-reels/routes/instagram-reels.routes';
+import returnRoutes from './modules/returns/routes/return.routes';
 import navMenuRoutes from './modules/nav-menus/routes/nav-menu.routes';
 import imageRoutes from './modules/images/routes/image.routes';
 
@@ -189,6 +190,7 @@ app.use(`${v1}/seo`, seoRoutes);
 app.use(`${v1}/media`, mediaRoutes);
 app.use(`${v1}/stores`, storeRoutes);
 app.use(`${v1}/instagram-reels`, instagramReelsRoutes);
+app.use(`${v1}/returns`, returnRoutes);
 app.use(`${v1}/nav-menus`, navMenuRoutes);
 
 // 404 & error handler

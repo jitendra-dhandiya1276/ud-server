@@ -39,6 +39,7 @@ const seo_routes_1 = __importDefault(require("./modules/seo/routes/seo.routes"))
 const media_routes_1 = __importDefault(require("./modules/media/routes/media.routes"));
 const store_routes_1 = __importDefault(require("./modules/stores/routes/store.routes"));
 const instagram_reels_routes_1 = __importDefault(require("./modules/instagram-reels/routes/instagram-reels.routes"));
+const return_routes_1 = __importDefault(require("./modules/returns/routes/return.routes"));
 const nav_menu_routes_1 = __importDefault(require("./modules/nav-menus/routes/nav-menu.routes"));
 const image_routes_1 = __importDefault(require("./modules/images/routes/image.routes"));
 const app = (0, express_1.default)();
@@ -179,6 +180,7 @@ app.use(`${v1}/seo`, seo_routes_1.default);
 app.use(`${v1}/media`, media_routes_1.default);
 app.use(`${v1}/stores`, store_routes_1.default);
 app.use(`${v1}/instagram-reels`, instagram_reels_routes_1.default);
+app.use(`${v1}/returns`, return_routes_1.default);
 app.use(`${v1}/nav-menus`, nav_menu_routes_1.default);
 // 404 & error handler
 app.use(error_middleware_1.notFound);
