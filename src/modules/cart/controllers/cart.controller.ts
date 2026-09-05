@@ -136,16 +136,29 @@ export class CartController {
     }
 
     let discount = 0;
+    let freeShipping = false;
     if (coupon.type === 'PERCENTAGE') {
       discount = (cartTotal * Number(coupon.value)) / 100;
       if (coupon.maxDiscount) discount = Math.min(discount, Number(coupon.maxDiscount));
     } else if (coupon.type === 'FIXED') {
       discount = Math.min(Number(coupon.value), cartTotal);
     } else if (coupon.type === 'FREE_SHIPPING') {
+      // Nothing comes off the goods — the delivery charge is waived instead,
+      // and the caller has to be told so, or the preview shows "₹0 off" for a
+      // coupon that is genuinely worth something.
       discount = 0;
+      freeShipping = true;
     }
 
-    return sendSuccess(res, { coupon: { code: coupon.code, type: coupon.type, discount }, discountAmount: discount }, 'Coupon applied');
+    return sendSuccess(
+      res,
+      {
+        coupon: { code: coupon.code, type: coupon.type, discount },
+        discountAmount: discount,
+        freeShipping,
+      },
+      freeShipping ? 'Free delivery applied' : 'Coupon applied',
+    );
   }
 }
 

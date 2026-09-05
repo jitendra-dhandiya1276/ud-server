@@ -120,6 +120,7 @@ class CartController {
             return (0, response_1.sendError)(res, 'Coupon usage limit reached', 400);
         }
         let discount = 0;
+        let freeShipping = false;
         if (coupon.type === 'PERCENTAGE') {
             discount = (cartTotal * Number(coupon.value)) / 100;
             if (coupon.maxDiscount)
@@ -129,9 +130,17 @@ class CartController {
             discount = Math.min(Number(coupon.value), cartTotal);
         }
         else if (coupon.type === 'FREE_SHIPPING') {
+            // Nothing comes off the goods — the delivery charge is waived instead,
+            // and the caller has to be told so, or the preview shows "₹0 off" for a
+            // coupon that is genuinely worth something.
             discount = 0;
+            freeShipping = true;
         }
-        return (0, response_1.sendSuccess)(res, { coupon: { code: coupon.code, type: coupon.type, discount }, discountAmount: discount }, 'Coupon applied');
+        return (0, response_1.sendSuccess)(res, {
+            coupon: { code: coupon.code, type: coupon.type, discount },
+            discountAmount: discount,
+            freeShipping,
+        }, freeShipping ? 'Free delivery applied' : 'Coupon applied');
     }
 }
 exports.CartController = CartController;

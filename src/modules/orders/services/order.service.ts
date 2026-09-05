@@ -3,6 +3,7 @@ import { prisma } from '../../../config/prisma';
 import { AppError } from '../../../middlewares/error.middleware';
 import { generateOrderNumber } from '../../../utils/slugify';
 import { paginationParams } from '../../../utils/slugify';
+import { logger } from '../../../utils/logger';
 
 export class OrderService {
   private static readonly SHIPPING_RATES: Record<string, number> = {
@@ -157,6 +158,8 @@ export class OrderService {
       // Prices are GST-inclusive; taxAmount is stored for display/accounting only
       const taxAmount = subtotal * 0.18;
       let couponDiscount = 0;
+      let couponApplied = false;
+      let freeShipping = false;
 
       // 3. Validate and apply coupon inside the transaction
       if (data.couponCode) {
@@ -179,14 +182,33 @@ export class OrderService {
               if (coupon.maxDiscount) couponDiscount = Math.min(couponDiscount, Number(coupon.maxDiscount));
             } else if (coupon.type === 'FIXED') {
               couponDiscount = Math.min(Number(coupon.value), subtotal);
+            } else if (coupon.type === 'FREE_SHIPPING') {
+              // Waives the delivery charge rather than discounting the goods.
+              // Previously this branch did not exist, so a FREE_SHIPPING coupon
+              // validated, reported a discount of zero, and changed nothing —
+              // the customer was told it applied and still paid for delivery.
+              freeShipping = true;
             }
             await tx.coupon.update({
               where: { id: coupon.id },
               data: { usageCount: { increment: 1 } },
             });
+            couponApplied = true;
           }
         }
+
+        if (!couponApplied) {
+          // The order still goes through at full price — refusing it at the
+          // final step would lose the sale over a coupon — but this must not
+          // pass silently, or the only evidence is a customer who believed
+          // they had a discount.
+          logger.warn('Coupon requested but not applied', {
+            code: data.couponCode, userId, subtotal,
+          });
+        }
       }
+
+      if (freeShipping) shippingCharge = 0;
 
       const total = subtotal - couponDiscount + shippingCharge;
 
