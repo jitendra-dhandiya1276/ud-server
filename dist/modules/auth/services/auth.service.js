@@ -14,156 +14,150 @@ const error_middleware_1 = require("../../../middlewares/error.middleware");
 const client_1 = require("@prisma/client");
 const otp_1 = require("../../../utils/otp");
 const mailer_1 = require("../../../config/mailer");
-const verifyEmail_template_1 = require("../emails/verifyEmail.template");
+const signInCode_template_1 = require("../../../emails/signInCode.template");
 const logger_1 = require("../../../utils/logger");
 const googleClient = new google_auth_library_1.OAuth2Client(env_1.config.google.clientId);
 class AuthService {
     /**
-     * Sign-up creates the account but does NOT sign anyone in. A code goes to
-     * the address given, and only entering that code produces tokens — so an
-     * account can never reach a working state on an address its owner cannot
-     * read. See `verifyEmail`.
+     * Send a sign-in code. Creates NO user row.
      *
-     * When email is not configured at all the account is created verified: a
-     * misconfigured server should not silently make registration impossible.
+     * The pending code lives in EmailOtp, so an abandoned sign-up leaves nothing
+     * behind. Previously the account was created first and the code hung off it,
+     * which meant walking away from the code screen locked that address out of
+     * both registering again and signing in.
      */
-    async register(data) {
-        const existing = await prisma_1.prisma.user.findUnique({ where: { email: data.email } });
-        if (existing)
-            throw new error_middleware_1.AppError('Email already registered', 409);
-        const hashedPassword = await bcryptjs_1.default.hash(data.password, env_1.config.bcryptRounds);
-        const canVerify = (0, mailer_1.isMailConfigured)() && !env_1.config.isDev;
-        const user = await prisma_1.prisma.user.create({
-            data: {
-                ...data,
-                password: hashedPassword,
-                isVerified: !canVerify,
-                ...(canVerify ? {} : { emailVerifiedAt: new Date() }),
-            },
-            select: { id: true, email: true, firstName: true, lastName: true, role: true },
-        });
-        if (!canVerify) {
-            const tokens = this.generateTokens(user);
-            await prisma_1.prisma.user.update({
-                where: { id: user.id },
-                data: { refreshToken: tokens.refreshToken },
-            });
-            return { user, ...tokens, requiresVerification: false };
+    async requestOtp(data) {
+        const email = data.email.trim().toLowerCase();
+        if (!(0, mailer_1.isMailConfigured)()) {
+            throw new error_middleware_1.AppError('Email is not set up on this server, so codes cannot be sent.', 503);
         }
-        await this.sendEmailOtp(user.id, user.email, user.firstName);
-        return { user, requiresVerification: true };
-    }
-    /** Generate, store the hash, and mail the code. Never returns the code. */
-    async sendEmailOtp(userId, email, firstName) {
+        const existing = await prisma_1.prisma.user.findUnique({
+            where: { email },
+            select: { id: true, firstName: true, isActive: true },
+        });
+        if (existing && !existing.isActive) {
+            throw new error_middleware_1.AppError('Account disabled. Contact support.', 403);
+        }
+        const isNewUser = !existing;
+        // A new address needs a name; there is nowhere else to get one, and an
+        // account with a blank name looks broken everywhere it appears.
+        if (isNewUser && !String(data.firstName ?? '').trim()) {
+            throw new error_middleware_1.AppError('Please tell us your name to create your account.', 400, 'NAME_REQUIRED');
+        }
+        const pending = await prisma_1.prisma.emailOtp.findUnique({ where: { email } });
+        const now = new Date();
+        if (pending?.lastSentAt) {
+            const waited = now.getTime() - pending.lastSentAt.getTime();
+            if (waited < AuthService.OTP_RESEND_COOLDOWN_S * 1000) {
+                const seconds = Math.ceil((AuthService.OTP_RESEND_COOLDOWN_S * 1000 - waited) / 1000);
+                throw new error_middleware_1.AppError(`A code was just sent. Try again in ${seconds}s.`, 429);
+            }
+        }
+        if (pending && pending.sentCount >= AuthService.OTP_MAX_SENDS) {
+            throw new error_middleware_1.AppError('Too many codes requested for this email. Try again later.', 429);
+        }
         const code = (0, otp_1.generateOtp)(6);
-        const expiresAt = new Date(Date.now() + AuthService.OTP_TTL_MINUTES * 60000);
-        const mail = (0, verifyEmail_template_1.verifyEmailTemplate)({
-            customerName: firstName || 'there',
+        const expiresAt = new Date(now.getTime() + AuthService.OTP_TTL_MINUTES * 60000);
+        const mail = (0, signInCode_template_1.signInCodeEmail)({
+            firstName: existing?.firstName ?? data.firstName ?? null,
             otp: code,
             minutesValid: AuthService.OTP_TTL_MINUTES,
-            storeName: env_1.config.smtp.fromName,
+            isNewUser,
         });
-        // Sent before it is stored: a code the customer never received must not
-        // become the one that works.
+        // Sent before it is stored: a code that never left must not become the one
+        // the server will accept.
         await (0, mailer_1.sendMail)({ to: email, subject: mail.subject, html: mail.html, text: mail.text });
-        await prisma_1.prisma.user.update({
-            where: { id: userId },
-            data: {
-                emailOtpHash: (0, otp_1.hashOtp)(userId, code),
-                emailOtpExpiresAt: expiresAt,
-                emailOtpSentAt: new Date(),
-                emailOtpSentCount: { increment: 1 },
-                emailOtpAttempts: 0,
-            },
+        const payload = {
+            otpHash: (0, otp_1.hashOtp)(email, code),
+            expiresAt,
+            lastSentAt: now,
+            attempts: 0,
+            firstName: data.firstName?.trim() || null,
+            lastName: data.lastName?.trim() || null,
+            phone: data.phone?.trim() || null,
+        };
+        await prisma_1.prisma.emailOtp.upsert({
+            where: { email },
+            create: { email, ...payload, sentCount: 1 },
+            update: { ...payload, sentCount: { increment: 1 } },
         });
-        logger_1.logger.info('Verification code sent', { userId });
-        return expiresAt;
+        logger_1.logger.info('Sign-in code sent', { email, isNewUser });
+        return {
+            isNewUser,
+            expiresAt,
+            resendAvailableAt: new Date(now.getTime() + AuthService.OTP_RESEND_COOLDOWN_S * 1000),
+        };
     }
-    /** The code is what signs them in — verifying and logging in are one step. */
-    async verifyEmail(email, submitted) {
-        const user = await prisma_1.prisma.user.findUnique({
-            where: { email, deletedAt: null },
-            select: {
-                id: true, email: true, firstName: true, lastName: true, role: true,
-                isVerified: true, isActive: true,
-                emailOtpHash: true, emailOtpExpiresAt: true, emailOtpAttempts: true,
-            },
-        });
-        if (!user)
-            throw new error_middleware_1.AppError('No account found for that email', 404);
-        if (!user.isActive)
-            throw new error_middleware_1.AppError('Account disabled. Contact support.', 403);
-        if (user.isVerified)
-            throw new error_middleware_1.AppError('This email is already verified. Please sign in.', 400);
-        if (!user.emailOtpHash || !user.emailOtpExpiresAt) {
-            throw new error_middleware_1.AppError('No verification code has been sent. Request a new one.', 400);
-        }
-        if (user.emailOtpExpiresAt.getTime() < Date.now()) {
+    /**
+     * Verify the code. This is what signs a customer in, and — for a new address
+     * — what creates the account. The row is written only once the code is right.
+     */
+    async verifyOtp(rawEmail, submitted) {
+        const email = rawEmail.trim().toLowerCase();
+        const pending = await prisma_1.prisma.emailOtp.findUnique({ where: { email } });
+        if (!pending)
+            throw new error_middleware_1.AppError('No code was requested for this email. Request a new one.', 400);
+        if (pending.expiresAt.getTime() < Date.now()) {
             throw new error_middleware_1.AppError('That code has expired. Request a new one.', 400);
         }
-        if (user.emailOtpAttempts >= AuthService.OTP_MAX_ATTEMPTS) {
+        if (pending.attempts >= AuthService.OTP_MAX_ATTEMPTS) {
             throw new error_middleware_1.AppError('Too many incorrect codes. Request a new one.', 429);
         }
         const code = String(submitted ?? '').replace(/\D/g, '');
         if (code.length !== 6)
             throw new error_middleware_1.AppError('Enter the 6-digit code from your email.', 400);
-        if (!(0, otp_1.otpMatches)(user.id, code, user.emailOtpHash)) {
-            const { emailOtpAttempts } = await prisma_1.prisma.user.update({
-                where: { id: user.id },
-                data: { emailOtpAttempts: { increment: 1 } },
-                select: { emailOtpAttempts: true },
+        if (!(0, otp_1.otpMatches)(email, code, pending.otpHash)) {
+            const { attempts } = await prisma_1.prisma.emailOtp.update({
+                where: { email },
+                data: { attempts: { increment: 1 } },
+                select: { attempts: true },
             });
-            const left = Math.max(0, AuthService.OTP_MAX_ATTEMPTS - emailOtpAttempts);
+            const left = Math.max(0, AuthService.OTP_MAX_ATTEMPTS - attempts);
             throw new error_middleware_1.AppError(left > 0
                 ? `That code is not right. ${left} ${left === 1 ? 'try' : 'tries'} left.`
                 : 'That code is not right, and there are no tries left. Request a new one.', 400);
+        }
+        let user = await prisma_1.prisma.user.findUnique({
+            where: { email },
+            select: { id: true, email: true, firstName: true, lastName: true, role: true, isActive: true },
+        });
+        if (user && !user.isActive)
+            throw new error_middleware_1.AppError('Account disabled. Contact support.', 403);
+        if (!user) {
+            user = await prisma_1.prisma.user.create({
+                data: {
+                    email,
+                    firstName: pending.firstName || 'Customer',
+                    lastName: pending.lastName || '',
+                    phone: pending.phone,
+                    // Proven by the code that was just entered.
+                    isVerified: true,
+                    emailVerifiedAt: new Date(),
+                },
+                select: { id: true, email: true, firstName: true, lastName: true, role: true, isActive: true },
+            });
+            logger_1.logger.info('Account created by sign-in code', { userId: user.id });
         }
         const account = {
             id: user.id, email: user.email, firstName: user.firstName,
             lastName: user.lastName, role: user.role,
         };
         const tokens = this.generateTokens(account);
-        await prisma_1.prisma.user.update({
-            where: { id: user.id },
-            data: {
-                isVerified: true,
-                emailVerifiedAt: new Date(),
-                refreshToken: tokens.refreshToken,
-                lastLoginAt: new Date(),
-                // Spent. Keeping the hash would let the same code be replayed.
-                emailOtpHash: null,
-                emailOtpExpiresAt: null,
-                emailOtpAttempts: 0,
-            },
-        });
-        logger_1.logger.info('Email verified', { userId: user.id });
+        await prisma_1.prisma.$transaction([
+            prisma_1.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    refreshToken: tokens.refreshToken,
+                    lastLoginAt: new Date(),
+                    // Signing in by code proves the address, whatever the row said before.
+                    isVerified: true,
+                    emailVerifiedAt: new Date(),
+                },
+            }),
+            // Spent. Leaving it would let the same code be replayed.
+            prisma_1.prisma.emailOtp.delete({ where: { email } }),
+        ]);
         return { user: account, ...tokens };
-    }
-    /** Re-send, rate limited. Says nothing about whether the address exists. */
-    async resendEmailOtp(email) {
-        const user = await prisma_1.prisma.user.findUnique({
-            where: { email, deletedAt: null },
-            select: {
-                id: true, email: true, firstName: true, isVerified: true, isActive: true,
-                emailOtpSentAt: true, emailOtpSentCount: true,
-            },
-        });
-        // Deliberately vague: confirming which addresses have accounts would turn
-        // this endpoint into a way to enumerate the customer list.
-        if (!user || user.isVerified || !user.isActive)
-            return { sent: false };
-        if (user.emailOtpSentAt) {
-            const waited = Date.now() - user.emailOtpSentAt.getTime();
-            if (waited < AuthService.OTP_RESEND_COOLDOWN_S * 1000) {
-                const seconds = Math.ceil((AuthService.OTP_RESEND_COOLDOWN_S * 1000 - waited) / 1000);
-                throw new error_middleware_1.AppError(`A code was just sent. Try again in ${seconds}s.`, 429);
-            }
-        }
-        if (user.emailOtpSentCount >= AuthService.OTP_MAX_SENDS) {
-            throw new error_middleware_1.AppError('Too many codes requested. Contact support.', 429);
-        }
-        await this.sendEmailOtp(user.id, user.email, user.firstName);
-        return { sent: true };
     }
     async login(email, password) {
         const user = await prisma_1.prisma.user.findUnique({
@@ -320,9 +314,9 @@ class AuthService {
     }
 }
 exports.AuthService = AuthService;
-// ─── Email verification ────────────────────────────────────────────────
-AuthService.OTP_TTL_MINUTES = 15;
-AuthService.OTP_RESEND_COOLDOWN_S = 60;
-AuthService.OTP_MAX_SENDS = 5;
+// ─── Passwordless sign-in ─────────────────────────────────────────────
+AuthService.OTP_TTL_MINUTES = 10;
+AuthService.OTP_RESEND_COOLDOWN_S = 45;
+AuthService.OTP_MAX_SENDS = 6;
 AuthService.OTP_MAX_ATTEMPTS = 5;
 exports.authService = new AuthService();

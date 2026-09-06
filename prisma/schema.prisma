@@ -1026,3 +1026,32 @@ model NavMenu {
   @@index([position, gender, isActive])
   @@map("nav_menus")
 }
+
+/// A sign-in code in flight, held OUTSIDE the User table on purpose.
+///
+/// Codes used to be columns on User, which meant the account row had to exist
+/// before the code could be stored — so an abandoned sign-up left a permanent
+/// unverified user, and that email could then neither register again ("already
+/// registered") nor sign in ("verify your email"). Ten accounts reached that
+/// dead end in two days.
+///
+/// Keeping the code here means no account exists until a code is actually
+/// verified. An abandoned attempt expires and leaves nothing behind.
+model EmailOtp {
+  id         String    @id @default(uuid())
+  email      String    @unique
+  otpHash    String
+  /// Held for a sign-up until the code is confirmed, then written to the User.
+  firstName  String?
+  lastName   String?
+  phone      String?
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  sentCount  Int       @default(0)
+  lastSentAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([expiresAt])
+  @@map("email_otps")
+}

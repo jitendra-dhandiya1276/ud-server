@@ -9,7 +9,7 @@ const prisma_1 = require("../../../config/prisma");
 const env_1 = require("../../../config/env");
 const error_middleware_1 = require("../../../middlewares/error.middleware");
 const mailer_1 = require("../../../config/mailer");
-const deliveryOtp_template_1 = require("../emails/deliveryOtp.template");
+const deliveryCode_template_1 = require("../../../emails/deliveryCode.template");
 const logger_1 = require("../../../utils/logger");
 /**
  * Proof of delivery for parcels we carry ourselves.
@@ -115,12 +115,11 @@ class DeliveryOtpService {
         const { email, name } = this.recipient(order);
         const code = this.generateCode();
         const expiresAt = new Date(now.getTime() + TTL_MINUTES * 60 * 1000);
-        const mail = (0, deliveryOtp_template_1.deliveryOtpEmail)({
+        const mail = (0, deliveryCode_template_1.deliveryCodeEmail)({
             customerName: name,
             orderNumber: order.orderNumber,
             otp: code,
             minutesValid: TTL_MINUTES,
-            storeName: env_1.config.smtp.fromName,
         });
         // Sent before it is stored: a code the customer never received must not
         // become the one the panel will accept.

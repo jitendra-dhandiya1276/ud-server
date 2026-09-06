@@ -3,17 +3,23 @@ import { authController } from '../controllers/auth.controller';
 import { authenticate } from '../../../middlewares/auth.middleware';
 import { validate } from '../../../middlewares/validate.middleware';
 import {
-  registerSchema, loginSchema, googleAuthSchema,
+  loginSchema, googleAuthSchema,
   forgotPasswordSchema, resetPasswordSchema, changePasswordSchema,
-  refreshTokenSchema, verifyEmailSchema, resendVerificationSchema,
+  refreshTokenSchema, requestOtpSchema, verifyOtpSchema,
 } from '../validators/auth.validators';
 
 const router = Router();
 
-router.post('/register', validate(registerSchema), authController.register.bind(authController));
+// Passwordless: one endpoint to ask for a code, one to spend it. The second
+// creates the account when the address is new, so there is no separate
+// registration call and no half-made account when someone walks away.
+router.post('/otp/request', validate(requestOtpSchema), authController.requestOtp.bind(authController));
+router.post('/otp/verify', validate(verifyOtpSchema), authController.verifyOtp.bind(authController));
+
+// Password sign-in stays for accounts that have one. The only admin is
+// admin@uniquedressup.com and the domain has no MX records, so a code sent
+// there would bounce — removing this would lock the shop out of its own panel.
 router.post('/login', validate(loginSchema), authController.login.bind(authController));
-router.post('/verify-email', validate(verifyEmailSchema), authController.verifyEmail.bind(authController));
-router.post('/resend-verification', validate(resendVerificationSchema), authController.resendVerification.bind(authController));
 router.post('/google', validate(googleAuthSchema), authController.googleAuth.bind(authController));
 router.post('/refresh', validate(refreshTokenSchema), authController.refresh.bind(authController));
 router.post('/logout', authenticate, authController.logout.bind(authController));

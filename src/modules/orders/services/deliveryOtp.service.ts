@@ -3,7 +3,7 @@ import { prisma } from '../../../config/prisma';
 import { config } from '../../../config/env';
 import { AppError } from '../../../middlewares/error.middleware';
 import { sendMail, isMailConfigured, missingMailConfig } from '../../../config/mailer';
-import { deliveryOtpEmail } from '../emails/deliveryOtp.template';
+import { deliveryCodeEmail } from '../../../emails/deliveryCode.template';
 import { logger } from '../../../utils/logger';
 
 /**
@@ -141,12 +141,11 @@ export class DeliveryOtpService {
     const code      = this.generateCode();
     const expiresAt = new Date(now.getTime() + TTL_MINUTES * 60 * 1000);
 
-    const mail = deliveryOtpEmail({
+    const mail = deliveryCodeEmail({
       customerName: name,
       orderNumber:  order.orderNumber,
       otp:          code,
       minutesValid: TTL_MINUTES,
-      storeName:    config.smtp.fromName,
     });
 
     // Sent before it is stored: a code the customer never received must not

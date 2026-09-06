@@ -94,6 +94,8 @@ export const config = {
     pass: process.env.SMTP_PASS || '',
     fromEmail: process.env.FROM_EMAIL || 'noreply@fashionstore.com',
     fromName: process.env.FROM_NAME || 'Fashion Store',
+    /** Replies go here — the From domain has no inbox behind it. */
+    replyTo: process.env.REPLY_TO_EMAIL || process.env.SITE_EMAIL || '',
   },
 
   rateLimit: {

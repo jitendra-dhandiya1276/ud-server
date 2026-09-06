@@ -4,26 +4,21 @@ import { sendSuccess, sendError } from '../../../utils/response';
 import { prisma } from '../../../config/prisma';
 
 export class AuthController {
-  async register(req: Request, res: Response) {
-    const result = await authService.register(req.body);
-    const message = result.requiresVerification
-      ? 'Check your email for the verification code'
-      : 'Registration successful';
-    return sendSuccess(res, result, message, 201);
+  /**
+   * Ask for a sign-in code. Same endpoint whether the address is new or
+   * returning — the client does not need to know which, and asking would leak
+   * whether an address has an account.
+   */
+  async requestOtp(req: Request, res: Response) {
+    const result = await authService.requestOtp(req.body);
+    return sendSuccess(res, result, 'Code sent to your email');
   }
 
-  async verifyEmail(req: Request, res: Response) {
+  /** The code is the sign-in. For a new address it also creates the account. */
+  async verifyOtp(req: Request, res: Response) {
     const { email, otp } = req.body;
-    const result = await authService.verifyEmail(email, otp);
-    return sendSuccess(res, result, 'Email verified');
-  }
-
-  async resendVerification(req: Request, res: Response) {
-    const { email } = req.body;
-    await authService.resendEmailOtp(email);
-    // Always the same answer: a different one would confirm which addresses
-    // have accounts to anyone who cared to ask.
-    return sendSuccess(res, { sent: true }, 'If that account needs verifying, a new code is on its way');
+    const result = await authService.verifyOtp(email, otp);
+    return sendSuccess(res, result, 'Signed in');
   }
 
   async login(req: Request, res: Response) {

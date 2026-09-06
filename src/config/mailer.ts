@@ -42,11 +42,17 @@ export interface MailInput {
   subject: string;
   html: string;
   text: string;
+  /**
+   * Where replies should land. The From address is on the sending domain,
+   * which has no MX records — mail to it bounces — so anything inviting a
+   * reply must point somewhere a person actually reads.
+   */
+  replyTo?: string;
 }
 
 // ─── Brevo HTTP API ──────────────────────────────────────────────────────
 
-async function sendViaBrevo({ to, subject, html, text }: MailInput): Promise<void> {
+async function sendViaBrevo({ to, subject, html, text, replyTo }: MailInput): Promise<void> {
   let res: Response;
   try {
     res = await fetch(BREVO_ENDPOINT, {
@@ -62,6 +68,7 @@ async function sendViaBrevo({ to, subject, html, text }: MailInput): Promise<voi
         subject,
         htmlContent: html,
         textContent: text,
+        ...(replyTo && { replyTo: { email: replyTo } }),
       }),
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
@@ -110,15 +117,18 @@ function getTransporter(): Transporter {
   return transporter;
 }
 
-async function sendViaSmtp({ to, subject, html, text }: MailInput): Promise<void> {
+async function sendViaSmtp({ to, subject, html, text, replyTo }: MailInput): Promise<void> {
   const from = `"${config.smtp.fromName}" <${config.smtp.fromEmail}>`;
-  await getTransporter().sendMail({ from, to, subject, html, text });
+  await getTransporter().sendMail({ from, to, subject, html, text, ...(replyTo && { replyTo }) });
 }
 
 // ─── Entry point ─────────────────────────────────────────────────────────
 
 export async function sendMail(input: MailInput): Promise<void> {
   const provider = mailProvider();
+  // Default every email to a mailbox that exists, unless a caller overrides it.
+  const withReply: MailInput = { replyTo: config.smtp.replyTo || undefined, ...input };
+  input = withReply;
   if (provider === 'NONE') {
     throw new Error(
       `Email is not configured on this server (set ${missingMailConfig().join(' ')})`,

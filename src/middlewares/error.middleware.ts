@@ -5,11 +5,14 @@ import { config } from '../config/env';
 export class AppError extends Error {
   statusCode: number;
   isOperational: boolean;
+  /** Machine-readable reason, when the client has to branch on it. */
+  code?: string;
 
-  constructor(message: string, statusCode = 500) {
+  constructor(message: string, statusCode = 500, code?: string) {
     super(message);
     this.statusCode = statusCode;
     this.isOperational = true;
+    if (code) this.code = code;
     Error.captureStackTrace(this, this.constructor);
   }
 }
