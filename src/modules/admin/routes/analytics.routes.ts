@@ -6,5 +6,6 @@ const router = Router();
 
 router.get('/dashboard', authenticate, isAdmin, analyticsController.getDashboard.bind(analyticsController));
 router.get('/revenue', authenticate, isAdmin, analyticsController.getRevenueReport.bind(analyticsController));
+router.get('/transactions', authenticate, isAdmin, analyticsController.getTransactions.bind(analyticsController));
 
 export default router;
